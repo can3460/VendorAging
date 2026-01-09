@@ -98,74 +98,28 @@ if not st.session_state['logged_in']:
     st.stop() 
 
 # ==========================================
-# ANA UYGULAMA
+# ANA UYGULAMA MİMARİSİ
 # ==========================================
 
+# --- Sidebar (Navigasyon & User Info) ---
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", use_container_width=True)
     st.markdown(f"👤 **{st.session_state['user_name']}**")
+    
+    # Navigation Mode
+    page_mode = "📊 Dashboard" # Default
+    
+    # Sadece Admin ise Mod Seçimi Göster
+    if st.session_state['user_email'] == ADMIN_EMAIL.lower() or st.session_state.get('user_role') == 'Admin':
+        st.divider()
+        page_mode = st.radio("Navigate", ["📊 Dashboard", "⚙️ Admin Panel"], label_visibility="collapsed")
+    
+    st.divider()
     if st.button("🔒 Logout"):
         st.session_state['logged_in'] = False
         st.rerun()
-    st.divider()
-    
-    # --- YENİLENEN ADMIN PANEL ---
-    if st.session_state['user_email'] == ADMIN_EMAIL.lower() or st.session_state.get('user_role') == 'Admin':
-        st.subheader("⚙️ Admin Panel")
-        
-        # 1. Hızlı Kullanıcı Ekleme
-        with st.expander("➕ Add New User"):
-            new_u_email = st.text_input("New User Email").strip().lower()
-            new_u_name = st.text_input("New User Name").strip()
-            if st.button("Add User"):
-                if new_u_email and new_u_name:
-                    success, msg = add_user_to_db(new_u_email, new_u_name)
-                    if success: st.success(f"✅ {new_u_name} added!")
-                    else: st.error(msg)
-        
-        # 2. Kullanıcı Listesi & Düzenleme (YENİ ÖZELLİK)
-        with st.expander("📂 User List (Edit/Delete)"):
-            st.write("Edit names/roles directly below or select rows to delete.")
-            
-            # Veritabanını yükle
-            current_users_df = load_user_db()
-            
-            # Excel benzeri düzenlenebilir tablo
-            edited_users_df = st.data_editor(
-                current_users_df,
-                num_rows="dynamic", # Satır ekleme/silme aktif
-                use_container_width=True,
-                key="user_editor"
-            )
-            
-            # Değişiklikleri Kaydet Butonu
-            if st.button("💾 Save Changes"):
-                try:
-                    # Dosyayı güncelle
-                    edited_users_df.to_excel(USER_DB_FILE, index=False)
-                    st.success("User list updated successfully!")
-                    time.sleep(1)
-                    st.rerun() # Listeyi yenilemek için sayfayı tazele
-                except Exception as e:
-                    st.error(f"Error saving changes: {e}")
 
-    # Settings
-    st.header("Global Settings")
-    
-    currency_list = [
-        "EGP", "TRY", "TND", "USD", "EUR", "GBP", "AED", "SAR", "INR", "CNY", 
-        "JPY", "CAD", "AUD", "CHF", "RUB", "BRL", "MXN", "ZAR", "NGN", "KES", 
-        "GHS", "MAD", "DZD", "PKR", "IDR", "MYR", "PHP", "THB", "VND", "KRW", 
-        "PLN", "HUF", "CZK", "RON"
-    ]
-    
-    selected_currency = st.selectbox("Select Local Currency", currency_list, index=0)
-    default_rate = 52.50 if selected_currency == "EGP" else (35.00 if selected_currency == "TRY" else 1.00)
-    eur_rate = st.number_input(f"EUR / {selected_currency} Rate", value=default_rate, step=0.01)
-    
-    uploaded_file = st.file_uploader("Upload SAP FBL1N Report", type=["xlsx", "xls"])
-
-# Styling
+# --- Custom Styling ---
 st.markdown("""
     <style>
     .main { background-color: #f8fafc; }
@@ -177,122 +131,202 @@ st.markdown("""
     .stTable { width: 100% !important; }
     .print-btn { background-color: #475569; color: white; border: none; padding: 10px 20px; text-align: center; display: inline-block; font-size: 16px; cursor: pointer; border-radius: 8px; font-weight: bold; width: 100%; }
     .print-btn:hover { background-color: #334155; transform: scale(1.02); }
+    /* Form Styling */
+    [data-testid="stForm"] { border: 1px solid #e2e8f0; padding: 20px; border-radius: 10px; background-color: white; }
     @media print { [data-testid="stSidebar"] { display: none; } .stButton { display: none; } .print-hide { display: none; } iframe { display: none; } .footer { position: fixed; bottom: 0; width: 100%; } }
     </style>
     """, unsafe_allow_html=True)
 
-col_h1, col_h2 = st.columns([3, 1])
-with col_h1:
-    st.title("Account Payable Aging Analysis")
-    st.caption(f"Financial Intelligence Dashboard | Welcome, {st.session_state['user_name']}")
+# --------------------------------------------------------
+# SENARYO 1: ADMIN PANEL GÖRÜNÜMÜ
+# --------------------------------------------------------
+if page_mode == "⚙️ Admin Panel":
+    st.title("⚙️ Administration & User Management")
+    st.markdown("Manage authorized users for VendorFace Dashboard.")
+    
+    tab1, tab2 = st.tabs(["📂 **User List (Edit / Delete)**", "➕ **Add New User**"])
+    
+    # TAB 1: USER LIST (Main Screen Editor)
+    with tab1:
+        st.info("💡 You can edit names/emails directly in the table below. Select rows and press 'Delete' key to remove users.")
+        
+        current_users_df = load_user_db()
+        
+        # Geniş Data Editor
+        edited_users_df = st.data_editor(
+            current_users_df,
+            num_rows="dynamic",
+            use_container_width=True,
+            height=400,
+            key="user_editor_main"
+        )
+        
+        col_save, col_dummy = st.columns([1, 4])
+        with col_save:
+            if st.button("💾 Save Changes", type="primary", use_container_width=True):
+                try:
+                    edited_users_df.to_excel(USER_DB_FILE, index=False)
+                    st.toast("✅ User list updated successfully!", icon="🎉")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error saving changes: {e}")
 
-# Excel Writer Function
-def write_optimized_excel(writer, df, sheet_name):
-    workbook = writer.book
-    worksheet = workbook.add_worksheet(sheet_name)
-    writer.sheets[sheet_name] = worksheet
-    header_fmt = workbook.add_format({'bold': True, 'bg_color': '#1e3a8a', 'font_color': 'white', 'border': 1, 'align': 'center'})
-    str_fmt = workbook.add_format({'border': 1, 'align': 'left'})
-    num_fmt = workbook.add_format({'border': 1, 'num_format': '#,##0.00', 'align': 'right'})
-    for col_num, value in enumerate(df.columns.values): worksheet.write(0, col_num, value, header_fmt)
-    for row_idx, row in enumerate(df.itertuples(index=False), start=1):
-        for col_idx, value in enumerate(row):
-            worksheet.write(row_idx, col_idx, value, str_fmt if col_idx < 2 else num_fmt)
-    worksheet.set_column('A:A', 15)
-    worksheet.set_column('B:B', 45)
-    worksheet.set_column('C:H', 18)
+    # TAB 2: ADD USER FORM (Proper Form)
+    with tab2:
+        col_form1, col_form2 = st.columns([1, 1])
+        with col_form1:
+            st.markdown("### Authorize New Colleague")
+            with st.form("add_user_main_form"):
+                new_u_email = st.text_input("New User Email", placeholder="name.surname@sanofi.com").strip().lower()
+                new_u_name = st.text_input("New User Name", placeholder="e.g. John Doe").strip()
+                
+                submitted = st.form_submit_button("Add User to System", type="primary")
+                
+                if submitted:
+                    if new_u_email and new_u_name:
+                        success, msg = add_user_to_db(new_u_email, new_u_name)
+                        if success: 
+                            st.success(f"✅ {new_u_name} has been authorized!")
+                            time.sleep(1.5)
+                            st.rerun()
+                        else: 
+                            st.error(msg)
+                    else:
+                        st.error("Please fill both email and name fields.")
 
-if uploaded_file:
-    with st.status("🚀 Generating Report... Please wait.", expanded=True) as status:
-        st.write("📂 1. Reading file...")
-        progress_bar = st.progress(0)
-        try:
-            df = pd.read_excel(uploaded_file)
-            progress_bar.progress(25)
-            
-            st.write("🧹 2. Cleaning data...")
-            df['Posting Date'] = pd.to_datetime(df['Posting Date'], errors='coerce')
-            df['Payment date'] = pd.to_datetime(df['Payment date'], errors='coerce')
-            df['Amount'] = pd.to_numeric(df['Amount in local currency'], errors='coerce').fillna(0)
-            df['Supplier'] = df['Supplier'].fillna('N/A')
-            df['Vendor name'] = df['Vendor name'].fillna('Unknown')
-            df['G/L Account'] = df['G/L Account'].apply(lambda x: str(int(float(x))) if not pd.isna(x) and str(x).replace('.','').isdigit() else str(x))
-            progress_bar.progress(50)
-            
-            st.write("🧮 3. Calculating Aging...")
-            report_date = df['Posting Date'].max()
-            buckets = ["Not Due", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
-            
-            def get_bucket(pay_date):
-                if pd.isna(pay_date): return "Not Due"
-                days = (report_date - pay_date).days
-                if days < 0: return "Not Due"
-                elif days <= 30: return "1-30 Days"
-                elif days <= 60: return "31-60 Days"
-                elif days <= 90: return "61-90 Days"
-                else: return "90+ Days"
-            
-            df['Aging Bucket'] = df['Payment date'].apply(get_bucket)
-            progress_bar.progress(75)
-            
-            st.write("📊 4. Creating tables...")
-            def create_pivot(d):
-                if d.empty: return pd.DataFrame()
-                p = d.pivot_table(index=['Supplier', 'Vendor name'], columns='Aging Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
-                p['Total Balance'] = p.sum(axis=1)
-                return p.sort_values(by='Total Balance', ascending=True).reset_index()
+# --------------------------------------------------------
+# SENARYO 2: DASHBOARD GÖRÜNÜMÜ (Standart Akış)
+# --------------------------------------------------------
+elif page_mode == "📊 Dashboard":
+    
+    # -- Dashboard Sidebar Controls (Sadece Dashboard Modunda Görünür) --
+    with st.sidebar:
+        st.header("Global Settings")
+        currency_list = [
+            "EGP", "TRY", "TND", "USD", "EUR", "GBP", "AED", "SAR", "INR", "CNY", 
+            "JPY", "CAD", "AUD", "CHF", "RUB", "BRL", "MXN", "ZAR", "NGN", "KES", 
+            "GHS", "MAD", "DZD", "PKR", "IDR", "MYR", "PHP", "THB", "VND", "KRW", 
+            "PLN", "HUF", "CZK", "RON"
+        ]
+        selected_currency = st.selectbox("Select Local Currency", currency_list, index=0)
+        default_rate = 52.50 if selected_currency == "EGP" else (35.00 if selected_currency == "TRY" else 1.00)
+        eur_rate = st.number_input(f"EUR / {selected_currency} Rate", value=default_rate, step=0.01)
+        uploaded_file = st.file_uploader("Upload SAP FBL1N Report", type=["xlsx", "xls"])
 
-            ap_pivot = create_pivot(df[df['G/L Account'].isin(['16740100', '31210100'])])
-            dp_pivot = create_pivot(df[df['G/L Account'] == '16740100'])
-            p_only = df[df['G/L Account'] == '31210100']
-            db_pivot = pd.DataFrame()
-            if not p_only.empty:
-                temp = create_pivot(p_only)
-                db_pivot = temp[temp['Total Balance'] > 0]
-            
-            progress_bar.progress(90)
-            output_excel = io.BytesIO()
-            with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
-                write_optimized_excel(writer, ap_pivot, 'AP Aging')
-                write_optimized_excel(writer, dp_pivot, 'Downpayments')
-                write_optimized_excel(writer, db_pivot, 'Debit Balances')
-            
-            progress_bar.progress(100)
-            status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
-            
-        except Exception as e:
-            st.error(f"Error: {e}")
-            st.stop()
+    # -- Main Dashboard Logic --
+    col_h1, col_h2 = st.columns([3, 1])
+    with col_h1:
+        st.title("Account Payable Aging Analysis")
+        st.caption(f"Financial Intelligence Dashboard | Welcome, {st.session_state['user_name']}")
 
-    with col_h2:
-        st.download_button("📥 Download Excel Report", output_excel.getvalue(), f"AP_Report_{datetime.now().strftime('%d%m%Y')}.xlsx")
-        components.html(f"""<button onclick="window.print()" class="print-btn">🖨️ Save as PDF</button>""", height=50)
+    # Excel Writer Function
+    def write_optimized_excel(writer, df, sheet_name):
+        workbook = writer.book
+        worksheet = workbook.add_worksheet(sheet_name)
+        writer.sheets[sheet_name] = worksheet
+        header_fmt = workbook.add_format({'bold': True, 'bg_color': '#1e3a8a', 'font_color': 'white', 'border': 1, 'align': 'center'})
+        str_fmt = workbook.add_format({'border': 1, 'align': 'left'})
+        num_fmt = workbook.add_format({'border': 1, 'num_format': '#,##0.00', 'align': 'right'})
+        for col_num, value in enumerate(df.columns.values): worksheet.write(0, col_num, value, header_fmt)
+        for row_idx, row in enumerate(df.itertuples(index=False), start=1):
+            for col_idx, value in enumerate(row):
+                worksheet.write(row_idx, col_idx, value, str_fmt if col_idx < 2 else num_fmt)
+        worksheet.set_column('A:A', 15)
+        worksheet.set_column('B:B', 45)
+        worksheet.set_column('C:H', 18)
 
-    def display_narrow_table(pivot_df, title):
-        c1, c2, c3 = st.columns([1, 6, 1]) 
-        with c2:
-            st.markdown(f"### {title}")
-            if pivot_df.empty:
-                st.warning("No data found.")
-                return
-            
-            total_cols = pivot_df[buckets].sum()
-            grand_total = pivot_df['Total Balance'].sum()
-            summ_data = {
-                "Unit": [f"k{selected_currency}", "kEUR"], 
-                "Total": [round(grand_total/1000), round((grand_total/eur_rate)/1000)]
-            }
-            for b in buckets:
-                val = total_cols[b]
-                summ_data[b] = [round(val/1000), round((val/eur_rate)/1000)]
-            
-            st.table(pd.DataFrame(summ_data).style.format(precision=0, thousands=",").set_properties(**{'text-align': 'center'}).set_properties(subset=['Total'], **{'font-weight': 'bold', 'background-color': '#f1f5f9'}).set_table_styles([{'selector': 'th', 'props': [('background-color', '#e2e8f0'), ('color', '#1e3a8a')]}]))
+    if uploaded_file:
+        with st.status("🚀 Generating Report... Please wait.", expanded=True) as status:
+            st.write("📂 1. Reading file...")
+            progress_bar = st.progress(0)
+            try:
+                df = pd.read_excel(uploaded_file)
+                progress_bar.progress(25)
+                
+                st.write("🧹 2. Cleaning data...")
+                df['Posting Date'] = pd.to_datetime(df['Posting Date'], errors='coerce')
+                df['Payment date'] = pd.to_datetime(df['Payment date'], errors='coerce')
+                df['Amount'] = pd.to_numeric(df['Amount in local currency'], errors='coerce').fillna(0)
+                df['Supplier'] = df['Supplier'].fillna('N/A')
+                df['Vendor name'] = df['Vendor name'].fillna('Unknown')
+                df['G/L Account'] = df['G/L Account'].apply(lambda x: str(int(float(x))) if not pd.isna(x) and str(x).replace('.','').isdigit() else str(x))
+                progress_bar.progress(50)
+                
+                st.write("🧮 3. Calculating Aging...")
+                report_date = df['Posting Date'].max()
+                buckets = ["Not Due", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
+                
+                def get_bucket(pay_date):
+                    if pd.isna(pay_date): return "Not Due"
+                    days = (report_date - pay_date).days
+                    if days < 0: return "Not Due"
+                    elif days <= 30: return "1-30 Days"
+                    elif days <= 60: return "31-60 Days"
+                    elif days <= 90: return "61-90 Days"
+                    else: return "90+ Days"
+                
+                df['Aging Bucket'] = df['Payment date'].apply(get_bucket)
+                progress_bar.progress(75)
+                
+                st.write("📊 4. Creating tables...")
+                def create_pivot(d):
+                    if d.empty: return pd.DataFrame()
+                    p = d.pivot_table(index=['Supplier', 'Vendor name'], columns='Aging Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
+                    p['Total Balance'] = p.sum(axis=1)
+                    return p.sort_values(by='Total Balance', ascending=True).reset_index()
 
-    st.divider()
-    display_narrow_table(ap_pivot, "1. Total AP Aging Summary")
-    display_narrow_table(dp_pivot, "2. Prepayments (DP) Summary")
-    display_narrow_table(db_pivot, "3. Debit Balances Summary")
+                ap_pivot = create_pivot(df[df['G/L Account'].isin(['16740100', '31210100'])])
+                dp_pivot = create_pivot(df[df['G/L Account'] == '16740100'])
+                p_only = df[df['G/L Account'] == '31210100']
+                db_pivot = pd.DataFrame()
+                if not p_only.empty:
+                    temp = create_pivot(p_only)
+                    db_pivot = temp[temp['Total Balance'] > 0]
+                
+                progress_bar.progress(90)
+                output_excel = io.BytesIO()
+                with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
+                    write_optimized_excel(writer, ap_pivot, 'AP Aging')
+                    write_optimized_excel(writer, dp_pivot, 'Downpayments')
+                    write_optimized_excel(writer, db_pivot, 'Debit Balances')
+                
+                progress_bar.progress(100)
+                status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
+                
+            except Exception as e:
+                st.error(f"Error: {e}")
+                st.stop()
 
-    st.markdown(f"""<div class="footer">© {datetime.now().year} | <b>Account Payable Intelligence Suite</b><br>Developed by <b>Can Adiguzel</b></div>""", unsafe_allow_html=True)
-else:
-    st.info("👋 Welcome! Please select your currency and upload your FBL1N Excel file to start.")
+        with col_h2:
+            st.download_button("📥 Download Excel Report", output_excel.getvalue(), f"AP_Report_{datetime.now().strftime('%d%m%Y')}.xlsx")
+            components.html(f"""<button onclick="window.print()" class="print-btn">🖨️ Save as PDF</button>""", height=50)
+
+        def display_narrow_table(pivot_df, title):
+            c1, c2, c3 = st.columns([1, 6, 1]) 
+            with c2:
+                st.markdown(f"### {title}")
+                if pivot_df.empty:
+                    st.warning("No data found.")
+                    return
+                
+                total_cols = pivot_df[buckets].sum()
+                grand_total = pivot_df['Total Balance'].sum()
+                summ_data = {
+                    "Unit": [f"k{selected_currency}", "kEUR"], 
+                    "Total": [round(grand_total/1000), round((grand_total/eur_rate)/1000)]
+                }
+                for b in buckets:
+                    val = total_cols[b]
+                    summ_data[b] = [round(val/1000), round((val/eur_rate)/1000)]
+                
+                st.table(pd.DataFrame(summ_data).style.format(precision=0, thousands=",").set_properties(**{'text-align': 'center'}).set_properties(subset=['Total'], **{'font-weight': 'bold', 'background-color': '#f1f5f9'}).set_table_styles([{'selector': 'th', 'props': [('background-color', '#e2e8f0'), ('color', '#1e3a8a')]}]))
+
+        st.divider()
+        display_narrow_table(ap_pivot, "1. Total AP Aging Summary")
+        display_narrow_table(dp_pivot, "2. Prepayments (DP) Summary")
+        display_narrow_table(db_pivot, "3. Debit Balances Summary")
+        
+        st.markdown(f"""<div class="footer">© {datetime.now().year} | <b>Account Payable Intelligence Suite</b><br>Developed by <b>Can Adiguzel</b></div>""", unsafe_allow_html=True)
+    else:
+        st.info("👋 Welcome! Please select your currency and upload your FBL1N Excel file to start.")
