@@ -26,6 +26,7 @@ def load_user_db():
             {"Email": "Molka.Mathlouthi@sanofi.com", "Name": "Molka Mathlouthi", "Role": "User"},
             {"Email": "Shweta.Sharma3@sanofi.com", "Name": "Shweta Sharma", "Role": "User"},
             {"Email": "Cedric.Fallu@sanofi.com", "Name": "Cedric Fallu", "Role": "User"}
+             {"Email": "Cedric.Fallu@sanofi.com", "Name": "Cedric Fallu", "Role": "User"}
         ]
         df = pd.DataFrame(initial_users)
         df['Email'] = df['Email'].str.lower().str.strip()
@@ -74,7 +75,7 @@ if not st.session_state['logged_in']:
 
         if submit_button:
             # Domain Kontrolü (Global)
-            allowed_domains = ["sanofi.com", "opella.com"]
+            allowed_domains = ["sanofi.com", "opella.com" , "gmail.com"]
             is_valid_domain = any(email_input.endswith(dom) for dom in allowed_domains)
             
             if not is_valid_domain:
@@ -274,3 +275,4 @@ if uploaded_file:
     st.markdown(f"""<div class="footer">© {datetime.now().year} | <b>Account Payable Intelligence Suite</b><br>Developed by <b>Can Adiguzel</b></div>""", unsafe_allow_html=True)
 else:
     st.info("👋 Welcome! Please select your currency and upload your FBL1N Excel file to start.")
+
