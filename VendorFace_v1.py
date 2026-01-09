@@ -26,7 +26,6 @@ def load_user_db():
             {"Email": "Molka.Mathlouthi@sanofi.com", "Name": "Molka Mathlouthi", "Role": "User"},
             {"Email": "Shweta.Sharma3@sanofi.com", "Name": "Shweta Sharma", "Role": "User"},
             {"Email": "Cedric.Fallu@sanofi.com", "Name": "Cedric Fallu", "Role": "User"}
-        
         ]
         df = pd.DataFrame(initial_users)
         df['Email'] = df['Email'].str.lower().str.strip()
@@ -79,7 +78,6 @@ if not st.session_state['logged_in']:
             is_valid_domain = any(email_input.endswith(dom) for dom in allowed_domains)
             
             if not is_valid_domain:
-                # REVIZYON 1: Genel Hata Mesajı
                 st.error("⛔ Invalid Domain. Please enter a valid company email domain.")
             else:
                 users_df = load_user_db()
@@ -111,9 +109,12 @@ with st.sidebar:
         st.rerun()
     st.divider()
     
-    # Admin Panel
+    # --- YENİLENEN ADMIN PANEL ---
     if st.session_state['user_email'] == ADMIN_EMAIL.lower() or st.session_state.get('user_role') == 'Admin':
-        with st.expander("⚙️ Admin Panel"):
+        st.subheader("⚙️ Admin Panel")
+        
+        # 1. Hızlı Kullanıcı Ekleme
+        with st.expander("➕ Add New User"):
             new_u_email = st.text_input("New User Email").strip().lower()
             new_u_name = st.text_input("New User Name").strip()
             if st.button("Add User"):
@@ -121,8 +122,34 @@ with st.sidebar:
                     success, msg = add_user_to_db(new_u_email, new_u_name)
                     if success: st.success(f"✅ {new_u_name} added!")
                     else: st.error(msg)
+        
+        # 2. Kullanıcı Listesi & Düzenleme (YENİ ÖZELLİK)
+        with st.expander("📂 User List (Edit/Delete)"):
+            st.write("Edit names/roles directly below or select rows to delete.")
+            
+            # Veritabanını yükle
+            current_users_df = load_user_db()
+            
+            # Excel benzeri düzenlenebilir tablo
+            edited_users_df = st.data_editor(
+                current_users_df,
+                num_rows="dynamic", # Satır ekleme/silme aktif
+                use_container_width=True,
+                key="user_editor"
+            )
+            
+            # Değişiklikleri Kaydet Butonu
+            if st.button("💾 Save Changes"):
+                try:
+                    # Dosyayı güncelle
+                    edited_users_df.to_excel(USER_DB_FILE, index=False)
+                    st.success("User list updated successfully!")
+                    time.sleep(1)
+                    st.rerun() # Listeyi yenilemek için sayfayı tazele
+                except Exception as e:
+                    st.error(f"Error saving changes: {e}")
 
-    # --- REVIZYON 2: Local Currency Selection ---
+    # Settings
     st.header("Global Settings")
     
     currency_list = [
@@ -132,12 +159,8 @@ with st.sidebar:
         "PLN", "HUF", "CZK", "RON"
     ]
     
-    selected_currency = st.selectbox("Select Local Currency", currency_list, index=0) # Default EGP (0. index)
-
-    # --- REVIZYON 3: Dynamic Exchange Rate Input ---
-    # Default value logic (simple switch)
+    selected_currency = st.selectbox("Select Local Currency", currency_list, index=0)
     default_rate = 52.50 if selected_currency == "EGP" else (35.00 if selected_currency == "TRY" else 1.00)
-    
     eur_rate = st.number_input(f"EUR / {selected_currency} Rate", value=default_rate, step=0.01)
     
     uploaded_file = st.file_uploader("Upload SAP FBL1N Report", type=["xlsx", "xls"])
@@ -255,8 +278,6 @@ if uploaded_file:
             
             total_cols = pivot_df[buckets].sum()
             grand_total = pivot_df['Total Balance'].sum()
-            
-            # --- REVIZYON 4: Dinamik Etiketleme (kEGP -> kTRY vs) ---
             summ_data = {
                 "Unit": [f"k{selected_currency}", "kEUR"], 
                 "Total": [round(grand_total/1000), round((grand_total/eur_rate)/1000)]
@@ -275,6 +296,3 @@ if uploaded_file:
     st.markdown(f"""<div class="footer">© {datetime.now().year} | <b>Account Payable Intelligence Suite</b><br>Developed by <b>Can Adiguzel</b></div>""", unsafe_allow_html=True)
 else:
     st.info("👋 Welcome! Please select your currency and upload your FBL1N Excel file to start.")
-
-
-
