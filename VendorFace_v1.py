@@ -10,22 +10,15 @@ import streamlit.components.v1 as components
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="VendorFace | Enterprise Login", layout="wide")
 USER_DB_FILE = "users.xlsx"
-# Admin Yetkisi (Bu mail ile girildiğinde solda Admin Paneli açılır)
-ADMIN_EMAIL = "can.adiguzel@sanofi.com"
+ADMIN_EMAIL = "can.adiguzel@sanofi.com" 
 
 # --- 2. AUTHENTICATION SYSTEM ---
 
 def load_user_db():
-    """
-    Kullanıcı veritabanını yükler. 
-    Eğer dosya yoksa, ön tanımlı VIP listesi ile oluşturur.
-    """
     if not os.path.exists(USER_DB_FILE):
-        # --- ÖN TANIMLI KULLANICI LİSTESİ (VIP LIST) ---
+        # --- ÖN TANIMLI KULLANICI LİSTESİ ---
         initial_users = [
-            # Admin
             {"Email": ADMIN_EMAIL, "Name": "Can Adiguzel", "Role": "Admin"},
-            # Ekip Üyeleri
             {"Email": "AyseDeniz.Sen@sanofi.com", "Name": "AyseDeniz Sen", "Role": "User"},
             {"Email": "Hassan.Sadek@sanofi.com", "Name": "Hassan Sadek", "Role": "User"},
             {"Email": "Omar.Kordy@sanofi.com", "Name": "Omar Kordy", "Role": "User"},
@@ -34,12 +27,9 @@ def load_user_db():
             {"Email": "Shweta.Sharma3@sanofi.com", "Name": "Shweta Sharma", "Role": "User"},
             {"Email": "Cedric.Fallu@sanofi.com", "Name": "Cedric Fallu", "Role": "User"}
         ]
-        
         df = pd.DataFrame(initial_users)
-        # Mailleri küçük harfe çevir ve temizle
         df['Email'] = df['Email'].str.lower().str.strip()
         df['Added_Date'] = datetime.now().strftime("%Y-%m-%d")
-        
         df.to_excel(USER_DB_FILE, index=False)
         return df
     else:
@@ -48,14 +38,10 @@ def load_user_db():
 def add_user_to_db(email, name):
     df = load_user_db()
     email = email.lower().strip()
-    
     if email in df['Email'].values:
         return False, "User already exists!"
-    
     new_user = pd.DataFrame({
-        "Email": [email],
-        "Name": [name],
-        "Role": ["User"],
+        "Email": [email], "Name": [name], "Role": ["User"],
         "Added_Date": [datetime.now().strftime("%Y-%m-%d")]
     })
     df = pd.concat([df, new_user], ignore_index=True)
@@ -63,13 +49,11 @@ def add_user_to_db(email, name):
         df.to_excel(USER_DB_FILE, index=False)
         return True, "User authorized successfully."
     except Exception as e:
-        return False, f"Error saving DB (Close Excel file if open): {e}"
+        return False, f"Error saving DB: {e}"
 
-# Session State Kontrolü
-if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
-if 'user_email' not in st.session_state:
-    st.session_state['user_email'] = ""
+# Session State
+if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
+if 'user_email' not in st.session_state: st.session_state['user_email'] = ""
 
 # --- LOGIN SCREEN ---
 if not st.session_state['logged_in']:
@@ -84,90 +68,80 @@ if not st.session_state['logged_in']:
         st.markdown("### 👋 Corporate Login")
         st.info("Please enter your company email address to access the dashboard.")
         
-        # Enter tuşu ile giriş yapabilmek için form kullanımı
         with st.form("login_form"):
-            email_input = st.text_input("Email Address", placeholder="name.surname@sanofi.com").strip().lower()
+            email_input = st.text_input("Email Address", placeholder="name.surname@company.com").strip().lower()
             submit_button = st.form_submit_button("Secure Login", type="primary", use_container_width=True)
 
         if submit_button:
-            # Domain Kontrolü
+            # Domain Kontrolü (Global)
             allowed_domains = ["sanofi.com", "opella.com"]
             is_valid_domain = any(email_input.endswith(dom) for dom in allowed_domains)
             
             if not is_valid_domain:
-                st.error("⛔ Invalid Domain. Only @sanofi.com and @opella.com addresses are allowed.")
+                # REVIZYON 1: Genel Hata Mesajı
+                st.error("⛔ Invalid Domain. Please enter a valid company email domain.")
             else:
-                # DB Kontrolü
                 users_df = load_user_db()
                 user_record = users_df[users_df['Email'] == email_input]
                 
                 if not user_record.empty:
-                    # Başarılı Giriş
                     st.session_state['logged_in'] = True
                     st.session_state['user_email'] = email_input
                     st.session_state['user_name'] = user_record.iloc[0]['Name']
                     st.session_state['user_role'] = user_record.iloc[0]['Role']
                     st.rerun()
                 else:
-                    # Yetkisiz Kullanıcı -> Mail Linki
                     st.warning("⚠️ Access Denied: Your email is not authorized.")
-                    
                     subject = "VendorFace Access Request"
                     body = f"Hello Admin,%0D%0A%0D%0AI would like to request access to the VendorFace Dashboard.%0D%0A%0D%0AMy Email: {email_input}%0D%0AThank you."
                     mailto_link = f"mailto:{ADMIN_EMAIL}?subject={subject}&body={body}"
-                    
-                    st.markdown(f"""
-                        <a href="{mailto_link}" target="_blank" style="text-decoration:none;">
-                            <div style="background-color:#fefce8; border:1px solid #facc15; color:#854d0e; padding:10px; border-radius:5px; text-align:center; font-weight:bold;">
-                                📩 Click here to Request Access via Outlook
-                            </div>
-                        </a>
-                        """, unsafe_allow_html=True)
-                    st.caption("Admin will receive your request and notify you once approved.")
-    
+                    st.markdown(f"""<a href="{mailto_link}" target="_blank" style="text-decoration:none;"><div style="background-color:#fefce8; border:1px solid #facc15; color:#854d0e; padding:10px; border-radius:5px; text-align:center; font-weight:bold;">📩 Click here to Request Access via Outlook</div></a>""", unsafe_allow_html=True)
     st.stop() 
 
 # ==========================================
-# ANA UYGULAMA (Giriş Başarılı)
+# ANA UYGULAMA
 # ==========================================
 
-# --- Sidebar: User Info & Admin Panel ---
 with st.sidebar:
-    if os.path.exists("logo.png"):
-        st.image("logo.png", use_container_width=True)
-    
+    if os.path.exists("logo.png"): st.image("logo.png", use_container_width=True)
     st.markdown(f"👤 **{st.session_state['user_name']}**")
-    st.caption(f"Logged in as: {st.session_state['user_email']}")
-    
     if st.button("🔒 Logout"):
         st.session_state['logged_in'] = False
         st.rerun()
-    
     st.divider()
     
-    # --- ADMIN PANEL (Sadece Admin Görür) ---
+    # Admin Panel
     if st.session_state['user_email'] == ADMIN_EMAIL.lower() or st.session_state.get('user_role') == 'Admin':
-        with st.expander("⚙️ Admin Panel (Add User)"):
-            st.write("Authorize new colleague:")
+        with st.expander("⚙️ Admin Panel"):
             new_u_email = st.text_input("New User Email").strip().lower()
             new_u_name = st.text_input("New User Name").strip()
-            
             if st.button("Add User"):
                 if new_u_email and new_u_name:
                     success, msg = add_user_to_db(new_u_email, new_u_name)
-                    if success:
-                        st.success(f"✅ {new_u_name} added!")
-                    else:
-                        st.error(msg)
-                else:
-                    st.error("Please fill both fields.")
+                    if success: st.success(f"✅ {new_u_name} added!")
+                    else: st.error(msg)
+
+    # --- REVIZYON 2: Local Currency Selection ---
+    st.header("Global Settings")
     
-    # Normal Ayarlar
-    st.header("Settings")
-    eur_rate = st.number_input("EUR / EGP Rate", value=52.50, step=0.01)
+    currency_list = [
+        "EGP", "TRY", "TND", "USD", "EUR", "GBP", "AED", "SAR", "INR", "CNY", 
+        "JPY", "CAD", "AUD", "CHF", "RUB", "BRL", "MXN", "ZAR", "NGN", "KES", 
+        "GHS", "MAD", "DZD", "PKR", "IDR", "MYR", "PHP", "THB", "VND", "KRW", 
+        "PLN", "HUF", "CZK", "RON"
+    ]
+    
+    selected_currency = st.selectbox("Select Local Currency", currency_list, index=0) # Default EGP (0. index)
+
+    # --- REVIZYON 3: Dynamic Exchange Rate Input ---
+    # Default value logic (simple switch)
+    default_rate = 52.50 if selected_currency == "EGP" else (35.00 if selected_currency == "TRY" else 1.00)
+    
+    eur_rate = st.number_input(f"EUR / {selected_currency} Rate", value=default_rate, step=0.01)
+    
     uploaded_file = st.file_uploader("Upload SAP FBL1N Report", type=["xlsx", "xls"])
 
-# --- Custom Styling ---
+# Styling
 st.markdown("""
     <style>
     .main { background-color: #f8fafc; }
@@ -183,32 +157,23 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- Main App Logic ---
 col_h1, col_h2 = st.columns([3, 1])
 with col_h1:
     st.title("Account Payable Aging Analysis")
     st.caption(f"Financial Intelligence Dashboard | Welcome, {st.session_state['user_name']}")
 
-# Optimized Excel Writer Helper
+# Excel Writer Function
 def write_optimized_excel(writer, df, sheet_name):
     workbook = writer.book
     worksheet = workbook.add_worksheet(sheet_name)
     writer.sheets[sheet_name] = worksheet
-    # Kurumsal Mavi Başlık
     header_fmt = workbook.add_format({'bold': True, 'bg_color': '#1e3a8a', 'font_color': 'white', 'border': 1, 'align': 'center'})
     str_fmt = workbook.add_format({'border': 1, 'align': 'left'})
     num_fmt = workbook.add_format({'border': 1, 'num_format': '#,##0.00', 'align': 'right'})
-    
-    # Write Headers
-    for col_num, value in enumerate(df.columns.values):
-        worksheet.write(0, col_num, value, header_fmt)
-    
-    # Write Data
+    for col_num, value in enumerate(df.columns.values): worksheet.write(0, col_num, value, header_fmt)
     for row_idx, row in enumerate(df.itertuples(index=False), start=1):
         for col_idx, value in enumerate(row):
             worksheet.write(row_idx, col_idx, value, str_fmt if col_idx < 2 else num_fmt)
-    
-    # Set Widths
     worksheet.set_column('A:A', 15)
     worksheet.set_column('B:B', 45)
     worksheet.set_column('C:H', 18)
@@ -289,7 +254,12 @@ if uploaded_file:
             
             total_cols = pivot_df[buckets].sum()
             grand_total = pivot_df['Total Balance'].sum()
-            summ_data = {"Unit": ["kEGP", "kEUR"], "Total": [round(grand_total/1000), round((grand_total/eur_rate)/1000)]}
+            
+            # --- REVIZYON 4: Dinamik Etiketleme (kEGP -> kTRY vs) ---
+            summ_data = {
+                "Unit": [f"k{selected_currency}", "kEUR"], 
+                "Total": [round(grand_total/1000), round((grand_total/eur_rate)/1000)]
+            }
             for b in buckets:
                 val = total_cols[b]
                 summ_data[b] = [round(val/1000), round((val/eur_rate)/1000)]
@@ -303,4 +273,4 @@ if uploaded_file:
 
     st.markdown(f"""<div class="footer">© {datetime.now().year} | <b>Account Payable Intelligence Suite</b><br>Developed by <b>Can Adiguzel</b></div>""", unsafe_allow_html=True)
 else:
-    st.info("👋 Welcome! Please upload your FBL1N Excel file from the sidebar to start.")
+    st.info("👋 Welcome! Please select your currency and upload your FBL1N Excel file to start.")
