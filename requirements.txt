@@ -1,4 +1,6 @@
-streamlit
-pandas
-openpyxl
+yfinance
 xlsxwriter
+pandas
+numpy
+streamlit
+openpyxl
