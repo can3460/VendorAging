@@ -16,7 +16,7 @@ except ImportError:
 # 1. CONFIGURATION & SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella Finance", layout="wide", page_icon="🛡️")
-VERSION_NO = "v29.0" 
+VERSION_NO = "v29.1" 
 
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'view_currency' not in st.session_state: st.session_state['view_currency'] = "Local"
@@ -39,7 +39,7 @@ def smart_parse_tb(file):
         df_tb = pd.read_excel(file)
         gl_name_map, gl_solar_map, gl_balance_map = {}, {}, {}
 
-        # v26.1 Kesin Sütun Yakalama
+        # Sütun Yakalama
         acc_col = next((c for c in df_tb.columns if 'Account Number' in str(c)), None)
         name_col = next((c for c in df_tb.columns if 'Text for B/S P&L item' in str(c)), None)
         solar_col = next((c for c in df_tb.columns if any(x in str(c).lower() for x in ['financial', 'fs item', 'solar'])), None)
@@ -71,7 +71,7 @@ def generate_html_report(dfs, titles, display_curr, rate):
     return html
 
 # ==========================================
-# 3. INTERFACE (LOGIN & SIDEBAR)
+# 3. INTERFACE
 # ==========================================
 if not st.session_state['logged_in']:
     col1, col2, col3 = st.columns([1, 1, 1])
@@ -88,7 +88,7 @@ with st.sidebar:
     st.markdown(f"👤 **{st.session_state['user_name']}**")
     st.divider()
     uploaded_file = st.file_uploader("1. FBL1N Report", type=["xlsx", "xls"])
-    tb_file = st.file_uploader("2. Trial Balance F.01", type=["xlsx", "xls"])
+    tb_file = st.file_uploader("2. Trial Balance F.01 (Optional)", type=["xlsx", "xls"])
     currency = st.selectbox("Base Currency", ["EGP", "TRY", "USD", "TND"], index=0)
     if 'cur_val' not in st.session_state: st.session_state['cur_val'] = 52.50
     if st.button("🌐 Sync Online Rate"):
@@ -97,9 +97,6 @@ with st.sidebar:
     eur_rate = st.number_input(f"EUR/{currency}", value=st.session_state['cur_val'], format="%.4f")
     if st.button("🔒 Logout"): st.session_state['logged_in'] = False; st.rerun()
 
-# ==========================================
-# 4. DASHBOARD ENGINE
-# ==========================================
 st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0; color:#1e3a8a;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0;">HFO Operational Audit Dashboard</p></div><div style="text-align: right; color: #94a3b8; font-size: 11px;">Dev by <b>Can Adiguzel</b><br>{VERSION_NO} | Gemini AI</div></div>""", unsafe_allow_html=True)
 
 col_t1, col_t2 = st.columns([8, 2])
@@ -128,11 +125,9 @@ if uploaded_file:
             gl_pivot = df.pivot_table(index='GL', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
             gl_pivot['Total Balance'] = gl_pivot.sum(axis=1)
 
-            # TB Parsing (Stable Engine)
             name_map, solar_map, tb_bal_map = smart_parse_tb(tb_file) if tb_file else ({}, {}, {})
             drivers = df.groupby('GL').apply(lambda x: x.groupby('Vendor')['Amount'].sum().abs().idxmax() if not x.empty else "-").to_dict()
 
-            # Results Construction
             gl_final = gl_pivot.reset_index()
             gl_final['GL Name'] = gl_final['GL'].map(name_map).fillna("-")
             gl_final['SOLAR Code'] = gl_final['GL'].map(solar_map).fillna("-")
@@ -155,28 +150,30 @@ if uploaded_file:
             
             st.session_state['results'] = {
                 'gl_final': gl_final, 'v_ap': v_ap, 'v_db': v_db, 
-                'rec_df': pd.DataFrame(rec_list) if rec_list else None,
-                'gap_df': pd.DataFrame(gap_list) if gap_list else None,
+                'rec_df': pd.DataFrame(rec_list) if rec_list else pd.DataFrame(),
+                'gap_df': pd.DataFrame(gap_list) if gap_list else pd.DataFrame(),
                 'buckets': buckets
             }
 
-# --- RENDERING (SAFE STYLE) ---
+# --- RENDERING (CRASH PROOF) ---
 if st.session_state['results']:
     res = st.session_state['results']
-    def scale(df_in, cols):
+    
+    def scale_clean(df_in, cols):
         if df_in is None or df_in.empty: return pd.DataFrame()
         df_out = df_in.copy()
-        for c in cols: 
-            if c in df_out.columns: df_out[c] = df_out[c] / scalar
+        for c in cols:
+            if c in df_out.columns:
+                df_out[c] = pd.to_numeric(df_out[c], errors='coerce').fillna(0) / scalar
         return df_out
 
-    gl_disp = scale(res['gl_final'], res['buckets'] + ['Total Balance'])
-    ap_disp = scale(res['v_ap'], res['buckets'] + ['Total Balance'])
-    db_disp = scale(res['v_db'], res['buckets'] + ['Total Balance'])
-    rec_disp = scale(res['rec_df'], ['TB_Balance', 'FBL1n_Sum', 'Difference'])
-    gap_disp = scale(res['gap_df'], ['TB Balance'])
+    gl_disp = scale_clean(res['gl_final'], res['buckets'] + ['Total Balance'])
+    ap_disp = scale_clean(res['v_ap'], res['buckets'] + ['Total Balance'])
+    db_disp = scale_clean(res['v_db'], res['buckets'] + ['Total Balance'])
+    rec_disp = scale_clean(res['rec_df'], ['TB_Balance', 'FBL1n_Sum', 'Difference'])
+    gap_disp = scale_clean(res['gap_df'], ['TB Balance'])
 
-    # --- EXPORT SECTION ---
+    # --- EXPORT ---
     col_e1, col_e2 = st.columns(2)
     with col_e1:
         titles = ["0. Reconciliation", "1. GL Aging Summary", "2. Top Payables", "3. Top Debit Balances", "🛡️ TB Check"]
@@ -185,34 +182,38 @@ if st.session_state['results']:
     with col_e2:
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            gl_disp.to_excel(writer, sheet_name='GL Aging Summary', index=False)
+            gl_disp.to_excel(writer, sheet_name='GL Aging', index=False)
             ap_disp.to_excel(writer, sheet_name='Top Payables', index=False)
             db_disp.to_excel(writer, sheet_name='Top Debit Balances', index=False)
             if not rec_disp.empty: rec_disp.to_excel(writer, sheet_name='Reconciliation', index=False)
             if not gap_disp.empty: gap_disp.to_excel(writer, sheet_name='TB Check', index=False)
-        st.download_button("📥 Export Dashboard to Excel", output.getvalue(), f"Report_{display_unit}.xlsx", use_container_width=True)
+        st.download_button("📥 Export to Excel", output.getvalue(), f"Audit_{display_unit}.xlsx", use_container_width=True)
 
-    # --- VISUALS ---
+    # --- TABLES ---
     if not rec_disp.empty:
         st.markdown(f"### 0. Reconciliation: FBL1n vs TB ({display_unit})")
-        st.dataframe(rec_disp.style.format("{:,.0f}").apply(lambda x: ['color: red' if abs(v) > 1 else 'color: green' for v in x], subset=['Difference']), use_container_width=True)
+        # Difference kolonuna göre renk ver, hata verirse ham tabloya dön
+        try:
+            st.dataframe(rec_disp.round(0).style.apply(lambda x: ['color: red' if abs(v) > 1 else 'color: green' for v in x], subset=['Difference']), use_container_width=True)
+        except:
+            st.dataframe(rec_disp.round(0), use_container_width=True)
 
     st.markdown(f"### 1. GL & SOLAR Aging Summary ({display_unit})")
-    st.dataframe(gl_disp.style.format("{:,.0f}", subset=res['buckets'] + ['Total Balance']), use_container_width=True)
+    st.dataframe(gl_disp.round(0), use_container_width=True)
 
     c1, c2 = st.columns(2)
     with c1:
         st.markdown(f"### 2. Top Payables ({display_unit})")
-        if not ap_disp.empty: st.dataframe(ap_disp.style.format("{:,.0f}"), use_container_width=True)
+        if not ap_disp.empty: st.dataframe(ap_disp.round(0), use_container_width=True)
     with c2:
         st.markdown(f"### 3. Top Debit Balances ({display_unit})")
-        if not db_disp.empty: st.dataframe(db_disp.style.format("{:,.0f}"), use_container_width=True)
+        if not db_disp.empty: st.dataframe(db_disp.round(0), use_container_width=True)
 
     if not gap_disp.empty:
         st.divider()
         st.markdown(f"### 🛡️ TB Check : Other Payables (Not Reported in FBL1n) ({display_unit})")
-        st.dataframe(gap_disp.style.format("{:,.0f}"), use_container_width=True)
+        st.dataframe(gap_disp.round(0), use_container_width=True)
 
-    st.markdown(f"""<div style="position:fixed;bottom:0;left:0;width:100%;background:#f8fafc;text-align:center;padding:5px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;z-index:1000;">AP Analyzing Suite | {display_unit} View | {st.session_state['user_name']}</div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="position:fixed;bottom:0;left:0;width:100%;background:#f8fafc;text-align:center;padding:5px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;z-index:1000;">AP Analyzing Suite | {display_unit} View | Dev by Can Adiguzel</div>""", unsafe_allow_html=True)
 else:
-    st.info("👋 Welcome! Please upload FBL1N and F.01 reports to start analysis.")
+    st.info("👋 Welcome! Please upload FBL1N (Required) and F.01 (Optional) reports.")
