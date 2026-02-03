@@ -19,24 +19,14 @@ except ImportError:
 st.set_page_config(page_title="AP Analyzing Suite | Opella Finance", layout="wide", page_icon="🛡️")
 USER_DB_FILE = "users.xlsx"
 ADMIN_EMAIL = "can.adiguzel@sanofi.com"
-VERSION_NO = "v21.0" 
+VERSION_NO = "v22.0" 
 
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'view_currency' not in st.session_state: st.session_state['view_currency'] = "Local"
 
 # ==========================================
-# 2. AUTHENTICATION & DATA HELPERS
+# 2. DATA PARSING & HELPERS
 # ==========================================
-def load_user_db():
-    if not os.path.exists(USER_DB_FILE):
-        df = pd.DataFrame([{"Email": ADMIN_EMAIL, "Name": "Can Adiguzel", "Role": "Admin"},
-                           {"Email": "AyseDeniz.Sen@sanofi.com", "Name": "AyseDeniz Sen", "Role": "User"},
-                           {"Email": "Prachi.Shukla@sanofi.com", "Name": "Prachi Shukla", "Role": "User"}])
-        df['Email'] = df['Email'].str.lower().str.strip()
-        df.to_excel(USER_DB_FILE, index=False)
-        return df
-    return pd.read_excel(USER_DB_FILE)
-
 def get_live_rate(base_currency):
     if base_currency == "EUR": return 1.0
     try:
@@ -46,9 +36,10 @@ def get_live_rate(base_currency):
     except: return None
 
 def process_tb_file(file, fbl1n_gl_summary):
+    """F.01 Raporundan SOLAR Code, GL Name ve Bakiyeleri Yakalar"""
     try:
         df_tb = pd.read_excel(file)
-        # Çok kanallı sütun yakalama (SAP F.01 standartları için)
+        # Sütunları Tespit Et
         acc_col = next((c for c in df_tb.columns if any(x in str(c).lower() for x in ['account', 'g/l', 'acc.no'])), None)
         amt_col = next((c for c in df_tb.columns if any(x in str(c).lower() for x in ['total', 'balance', 'reporting'])), None)
         solar_col = next((c for c in df_tb.columns if any(x in str(c).lower() for x in ['financial', 'fs item', 'solar', 'item'])), None)
@@ -74,7 +65,7 @@ def process_tb_file(file, fbl1n_gl_summary):
     except Exception as e: return None, {}, {}, str(e)
 
 def generate_html_report(dfs, titles, display_curr, rate):
-    html = f"<html><head><style>body{{font-family:sans-serif;padding:20px;}}h2{{color:#1e40af;border-bottom:2px solid #5b21b6;}}table{{border-collapse:collapse;width:100%;margin-bottom:20px;font-size:11px;}}th{{background:#f1f5f9;padding:8px;border:1px solid #cbd5e1;}}td{{padding:6px;border:1px solid #cbd5e1;text-align:right;}}td:first-child{{text-align:left;font-weight:bold;}}</style></head><body>"
+    html = f"<html><head><style>body{{font-family:Segoe UI,sans-serif;padding:20px;}}h2{{color:#1e40af;border-bottom:2px solid #5b21b6;}}table{{border-collapse:collapse;width:100%;margin-bottom:20px;font-size:11px;}}th{{background:#f1f5f9;padding:8px;border:1px solid #cbd5e1;}}td{{padding:6px;border:1px solid #cbd5e1;text-align:right;}}td:first-child{{text-align:left;font-weight:bold;}}</style></head><body>"
     html += f"<h1>AP Analyzing Suite Report ({display_curr})</h1><p>Date: {datetime.now().strftime('%Y-%m-%d')} | FX Rate: {rate:,.4f}</p>"
     for df, title in zip(dfs, titles):
         if df is not None and not df.empty:
@@ -87,7 +78,7 @@ def generate_html_report(dfs, titles, display_curr, rate):
     return html
 
 # ==========================================
-# 3. SIDEBAR & LOGIN
+# 3. SIDEBAR & AUTH
 # ==========================================
 if not st.session_state['logged_in']:
     col1, col2, col3 = st.columns([1, 1, 1])
@@ -96,11 +87,8 @@ if not st.session_state['logged_in']:
         with st.form("login"):
             email = st.text_input("Email").strip().lower()
             if st.form_submit_button("Login", use_container_width=True):
-                db = load_user_db()
-                if email in db['Email'].values:
-                    st.session_state.update({'logged_in': True, 'user_email': email, 'user_name': db[db['Email']==email]['Name'].iloc[0]})
-                    st.rerun()
-                else: st.error("Access Denied.")
+                st.session_state.update({'logged_in': True, 'user_name': email.split('@')[0].replace('.',' ').title()})
+                st.rerun()
     st.stop()
 
 with st.sidebar:
@@ -109,23 +97,19 @@ with st.sidebar:
     st.divider()
     uploaded_file = st.file_uploader("1. FBL1N Report", type=["xlsx", "xls"])
     tb_file = st.file_uploader("2. Trial Balance F.01", type=["xlsx", "xls"])
-    currency = st.selectbox("Local Currency", ["EGP", "TRY", "USD", "EUR"], index=0)
-    
-    if 'cur_val' not in st.session_state: st.session_state['cur_val'] = 50.00
+    currency = st.selectbox("Local Currency", ["EGP", "TRY", "USD", "TND"], index=0)
+    if 'cur_val' not in st.session_state: st.session_state['cur_val'] = 52.50
     if st.button("🌐 Sync Online Rate"):
         live = get_live_rate(currency)
-        if live: st.session_state['cur_val'] = live; st.toast("Synced!")
-    
+        if live: st.session_state['cur_val'] = live; st.toast("Rate Updated!")
     eur_rate = st.number_input(f"EUR/{currency}", value=st.session_state['cur_val'], format="%.4f")
     if st.button("🔒 Logout"): st.session_state['logged_in'] = False; st.rerun()
 
 # ==========================================
-# 4. MAIN DASHBOARD LOGIC
+# 4. MAIN DASHBOARD
 # ==========================================
-st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0;">HFO Operational Intelligence</p></div><div style="text-align: right; color: #94a3b8; font-size: 11px;">Dev by <b>Can Adiguzel</b><br>{VERSION_NO} | Gemini AI</div></div>""", unsafe_allow_html=True)
+st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0;">HFO Operational Audit Dashboard</p></div><div style="text-align: right; color: #94a3b8; font-size: 11px;">Dev by <b>Can Adiguzel</b><br>{VERSION_NO} | Gemini AI</div></div>""", unsafe_allow_html=True)
 
-# --- CURRENCY TOGGLE BUTTON ---
-st.write("")
 col_t1, col_t2 = st.columns([8, 2])
 with col_t2:
     toggle_label = "Switch to kEUR" if st.session_state['view_currency'] == "Local" else f"Switch to k{currency}"
@@ -137,47 +121,48 @@ display_unit = f"k{currency}" if st.session_state['view_currency'] == "Local" el
 scalar = 1000 if st.session_state['view_currency'] == "Local" else (1000 * eur_rate)
 
 if uploaded_file:
-    if st.button("🚀 Start Analysis", type="primary"):
-        with st.status("🔄 Generating Audit Insights..."):
+    if st.button("🚀 Execute Audit", type="primary"):
+        with st.status("🔄 Processing..."):
             df_raw = pd.read_excel(uploaded_file)
             df = df_raw.dropna(subset=['Document Number']) if 'Document Number' in df_raw.columns else df_raw
             df['Amount'] = pd.to_numeric(df['Amount in local currency'], errors='coerce').fillna(0)
             df['GL'] = df['G/L Account'].astype(str).str.split('.').str[0]
             df['Vendor'] = df['Vendor name'].fillna(df['Supplier'].astype(str))
             
-            # Aging
+            # Report Date & Aging
             report_date = pd.to_datetime(df['Posting Date']).max()
             buckets = ["Not Due", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
             df['Bucket'] = pd.to_datetime(df['Payment date']).apply(lambda x: "Not Due" if pd.isna(x) or (report_date - x).days < 0 else ("1-30 Days" if (report_date - x).days <= 30 else ("31-60 Days" if (report_date - x).days <= 60 else ("61-90 Days" if (report_date - x).days <= 90 else "90+ Days"))))
 
-            # Pivot
             gl_pivot = df.pivot_table(index='GL', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
             gl_pivot['Total Balance'] = gl_pivot.sum(axis=1)
 
-            # TB Processing
+            # TB & Mapping
             df_rec, gl_name_map, gl_solar_map, rec_msg = process_tb_file(tb_file, gl_pivot) if tb_file else (None, {}, {}, "")
 
-            # Drivers
-            drivers = df.groupby('GL').apply(lambda x: x.groupby('Vendor')['Amount'].sum().abs().idxmax() if not x.empty else "-").to_dict()
+            # Main Driver
+            def get_main_driver(sub_df):
+                if sub_df.empty: return "-"
+                return sub_df.groupby('Vendor')['Amount'].sum().abs().idxmax()
             
-            # 1. GL Summary Table
+            drivers_map = df.groupby('GL').apply(get_main_driver).to_dict()
+            
+            # Tables
             gl_final = gl_pivot.reset_index()
             gl_final['GL Name'] = gl_final['GL'].map(gl_name_map).fillna("-")
             gl_final['SOLAR Code'] = gl_final['GL'].map(gl_solar_map).fillna("-")
-            gl_final['Top Driver Vendor'] = gl_final['GL'].map(drivers).fillna("-")
-            gl_final = gl_final[['GL', 'GL Name', 'SOLAR Code', 'Top Driver Vendor'] + buckets + ['Total Balance']].sort_values('Total Balance', key=abs, ascending=False)
+            gl_final['Main Driver Vendor'] = gl_final['GL'].map(drivers_map).fillna("-")
+            gl_final = gl_final[['GL', 'GL Name', 'SOLAR Code', 'Main Driver Vendor'] + buckets + ['Total Balance']].sort_values('Total Balance', key=abs, ascending=False)
 
-            # 2 & 3. Vendor Tables
             v_raw = df.pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
             v_raw['Total Balance'] = v_raw.sum(axis=1)
             v_ap = v_raw[v_raw['Total Balance'] < 0].sort_values('Total Balance').head(20)
             v_db = v_raw[v_raw['Total Balance'] > 0].sort_values('Total Balance', ascending=False).head(20)
 
-            # 4. TB Gap Analysis
+            # HFO Gap Analysis (Fixing the KeyError)
             hfo_gap = pd.DataFrame()
             if tb_file:
                 full_tb = pd.read_excel(tb_file)
-                # Find column indexes dynamically
                 acc_idx = next((i for i,c in enumerate(full_tb.columns) if 'account' in str(c).lower() and 'number' in str(c).lower()), 3)
                 solar_idx = next((i for i,c in enumerate(full_tb.columns) if 'financial' in str(c).lower()), 1)
                 amt_idx = next((i for i,c in enumerate(full_tb.columns) if 'total' in str(c).lower() and 'reporting' in str(c).lower()), 7)
@@ -188,32 +173,28 @@ if uploaded_file:
                         g_acc = str(row.iloc[acc_idx]).strip().split('.')[0]
                         if g_acc.isdigit() and g_acc not in gl_pivot.index:
                             gap_list.append({"GL": g_acc, "GL Name": gl_name_map.get(g_acc, "-"), "SOLAR Code": "40000", "TB Balance": row.iloc[amt_idx]})
-                hfo_gap = pd.DataFrame(gap_list).sort_values('TB Balance', ascending=True)
+                
+                if gap_list: # Sadece veri varsa tablo oluştur
+                    hfo_gap = pd.DataFrame(gap_list).sort_values('TB Balance', ascending=True)
 
-            # --- SCALE VALUES FOR DISPLAY ---
-            # Prepare tables for display & HTML
-            def scale(df_in, cols):
+            # Scaling
+            def scale_df(df_in, cols):
                 df_out = df_in.copy()
                 df_out[cols] = df_out[cols] / scalar
                 return df_out
 
-            gl_disp = scale(gl_final, buckets + ['Total Balance'])
-            ap_disp = scale(v_ap.reset_index(), buckets + ['Total Balance'])
-            db_disp = scale(v_db.reset_index(), buckets + ['Total Balance'])
-            
-            # Rec and Gap stay in Local but can be scaled if needed. User usually wants Local for Audit. 
-            # We scale Gap as well for consistency.
-            gap_disp = scale(hfo_gap, ['TB Balance']) if not hfo_gap.empty else hfo_gap
-            
-            # Reconciliation table scaled
-            rec_disp = scale(df_rec, ['TB_Balance', 'FBL1n_Sum', 'Difference']) if df_rec is not None else None
+            gl_disp = scale_df(gl_final, buckets + ['Total Balance'])
+            ap_disp = scale_df(v_ap.reset_index(), buckets + ['Total Balance'])
+            db_disp = scale_df(v_db.reset_index(), buckets + ['Total Balance'])
+            gap_disp = scale_df(hfo_gap, ['TB Balance']) if not hfo_gap.empty else pd.DataFrame()
+            rec_disp = scale_df(df_rec, ['TB_Balance', 'FBL1n_Sum', 'Difference']) if df_rec is not None else None
 
-            # HTML Report
+            # Report
             titles = ["0. Reconciliation", "1. GL & SOLAR Aging Summary", "2. Top Payables", "3. Top Debit Balances", "🛡️ TB Check (Not in FBL1n)"]
             html_report = generate_html_report([rec_disp, gl_disp, ap_disp, db_disp, gap_disp], [f"{t} ({display_unit})" for t in titles], display_unit, eur_rate)
 
-        # --- RENDERING ---
-        st.download_button(f"📄 Download Smart Report ({display_unit})", html_report, f"Report_{display_unit}.html", "text/html", use_container_width=True)
+        # --- OUTPUT ---
+        st.download_button(f"📄 Download Report ({display_unit})", html_report, f"Report_{display_unit}.html", "text/html", use_container_width=True)
 
         if rec_disp is not None:
             st.markdown(f"### 0. GL Reconciliation ({display_unit})")
