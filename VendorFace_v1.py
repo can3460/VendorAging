@@ -19,13 +19,13 @@ except ImportError:
 st.set_page_config(page_title="AP Analyzing Suite | Opella Finance", layout="wide", page_icon="🛡️")
 USER_DB_FILE = "users.xlsx"
 ADMIN_EMAIL = "can.adiguzel@sanofi.com"
-VERSION_NO = "v22.0" 
+VERSION_NO = "v23.0" 
 
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'view_currency' not in st.session_state: st.session_state['view_currency'] = "Local"
 
 # ==========================================
-# 2. DATA PARSING & HELPERS
+# 2. DATA PROCESSING HELPERS
 # ==========================================
 def get_live_rate(base_currency):
     if base_currency == "EUR": return 1.0
@@ -36,16 +36,16 @@ def get_live_rate(base_currency):
     except: return None
 
 def process_tb_file(file, fbl1n_gl_summary):
-    """F.01 Raporundan SOLAR Code, GL Name ve Bakiyeleri Yakalar"""
     try:
         df_tb = pd.read_excel(file)
-        # Sütunları Tespit Et
+        # Sütunları daha geniş kriterlerle tespit et
         acc_col = next((c for c in df_tb.columns if any(x in str(c).lower() for x in ['account', 'g/l', 'acc.no'])), None)
         amt_col = next((c for c in df_tb.columns if any(x in str(c).lower() for x in ['total', 'balance', 'reporting'])), None)
         solar_col = next((c for c in df_tb.columns if any(x in str(c).lower() for x in ['financial', 'fs item', 'solar', 'item'])), None)
+        # GL Name için 'Text' içeren ama 'Account' içermeyen ilk sütunu ara
         name_col = next((c for c in df_tb.columns if any(x in str(c).lower() for x in ['text', 'description', 'name']) and 'account' not in str(c).lower()), None)
 
-        if not acc_col or not amt_col: return None, {}, {}, "Sütunlar bulunamadı."
+        if not acc_col or not amt_col: return None, {}, {}, "Required columns missing in TB."
 
         df_tb = df_tb.dropna(subset=[acc_col])
         df_tb['GL_Key'] = df_tb[acc_col].astype(str).str.strip().str.split('.').str[0]
@@ -78,7 +78,7 @@ def generate_html_report(dfs, titles, display_curr, rate):
     return html
 
 # ==========================================
-# 3. SIDEBAR & AUTH
+# 3. LOGIN & SIDEBAR
 # ==========================================
 if not st.session_state['logged_in']:
     col1, col2, col3 = st.columns([1, 1, 1])
@@ -106,7 +106,7 @@ with st.sidebar:
     if st.button("🔒 Logout"): st.session_state['logged_in'] = False; st.rerun()
 
 # ==========================================
-# 4. MAIN DASHBOARD
+# 4. DASHBOARD LOGIC
 # ==========================================
 st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0;">HFO Operational Audit Dashboard</p></div><div style="text-align: right; color: #94a3b8; font-size: 11px;">Dev by <b>Can Adiguzel</b><br>{VERSION_NO} | Gemini AI</div></div>""", unsafe_allow_html=True)
 
@@ -129,7 +129,6 @@ if uploaded_file:
             df['GL'] = df['G/L Account'].astype(str).str.split('.').str[0]
             df['Vendor'] = df['Vendor name'].fillna(df['Supplier'].astype(str))
             
-            # Report Date & Aging
             report_date = pd.to_datetime(df['Posting Date']).max()
             buckets = ["Not Due", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
             df['Bucket'] = pd.to_datetime(df['Payment date']).apply(lambda x: "Not Due" if pd.isna(x) or (report_date - x).days < 0 else ("1-30 Days" if (report_date - x).days <= 30 else ("31-60 Days" if (report_date - x).days <= 60 else ("61-90 Days" if (report_date - x).days <= 90 else "90+ Days"))))
@@ -137,17 +136,13 @@ if uploaded_file:
             gl_pivot = df.pivot_table(index='GL', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
             gl_pivot['Total Balance'] = gl_pivot.sum(axis=1)
 
-            # TB & Mapping
             df_rec, gl_name_map, gl_solar_map, rec_msg = process_tb_file(tb_file, gl_pivot) if tb_file else (None, {}, {}, "")
 
-            # Main Driver
             def get_main_driver(sub_df):
                 if sub_df.empty: return "-"
                 return sub_df.groupby('Vendor')['Amount'].sum().abs().idxmax()
-            
             drivers_map = df.groupby('GL').apply(get_main_driver).to_dict()
             
-            # Tables
             gl_final = gl_pivot.reset_index()
             gl_final['GL Name'] = gl_final['GL'].map(gl_name_map).fillna("-")
             gl_final['SOLAR Code'] = gl_final['GL'].map(gl_solar_map).fillna("-")
@@ -159,7 +154,7 @@ if uploaded_file:
             v_ap = v_raw[v_raw['Total Balance'] < 0].sort_values('Total Balance').head(20)
             v_db = v_raw[v_raw['Total Balance'] > 0].sort_values('Total Balance', ascending=False).head(20)
 
-            # HFO Gap Analysis (Fixing the KeyError)
+            # TB Gap Analysis
             hfo_gap = pd.DataFrame()
             if tb_file:
                 full_tb = pd.read_excel(tb_file)
@@ -173,30 +168,26 @@ if uploaded_file:
                         g_acc = str(row.iloc[acc_idx]).strip().split('.')[0]
                         if g_acc.isdigit() and g_acc not in gl_pivot.index:
                             gap_list.append({"GL": g_acc, "GL Name": gl_name_map.get(g_acc, "-"), "SOLAR Code": "40000", "TB Balance": row.iloc[amt_idx]})
-                
-                if gap_list: # Sadece veri varsa tablo oluştur
-                    hfo_gap = pd.DataFrame(gap_list).sort_values('TB Balance', ascending=True)
+                if gap_list: hfo_gap = pd.DataFrame(gap_list).sort_values('TB Balance', ascending=True)
 
-            # Scaling
-            def scale_df(df_in, cols):
+            # Scaled Display Data
+            def scale_it(df_in, cols):
+                if df_in is None or df_in.empty: return pd.DataFrame()
                 df_out = df_in.copy()
                 df_out[cols] = df_out[cols] / scalar
                 return df_out
 
-            gl_disp = scale_df(gl_final, buckets + ['Total Balance'])
-            ap_disp = scale_df(v_ap.reset_index(), buckets + ['Total Balance'])
-            db_disp = scale_df(v_db.reset_index(), buckets + ['Total Balance'])
-            gap_disp = scale_df(hfo_gap, ['TB Balance']) if not hfo_gap.empty else pd.DataFrame()
-            rec_disp = scale_df(df_rec, ['TB_Balance', 'FBL1n_Sum', 'Difference']) if df_rec is not None else None
+            gl_disp = scale_it(gl_final, buckets + ['Total Balance'])
+            ap_disp = scale_it(v_ap.reset_index(), buckets + ['Total Balance'])
+            db_disp = scale_it(v_db.reset_index(), buckets + ['Total Balance'])
+            gap_disp = scale_it(hfo_gap, ['TB Balance'])
+            rec_disp = scale_it(df_rec, ['TB_Balance', 'FBL1n_Sum', 'Difference']) if df_rec is not None else None
 
-            # Report
-            titles = ["0. Reconciliation", "1. GL & SOLAR Aging Summary", "2. Top Payables", "3. Top Debit Balances", "🛡️ TB Check (Not in FBL1n)"]
-            html_report = generate_html_report([rec_disp, gl_disp, ap_disp, db_disp, gap_disp], [f"{t} ({display_unit})" for t in titles], display_unit, eur_rate)
+            html_report = generate_html_report([rec_disp, gl_disp, ap_disp, db_disp, gap_disp], [f"{t} ({display_unit})" for t in ["0. Reconciliation", "1. GL Aging", "2. Top Payables", "3. Top Debit Balances", "🛡️ TB Check"]], display_unit, eur_rate)
 
-        # --- OUTPUT ---
         st.download_button(f"📄 Download Report ({display_unit})", html_report, f"Report_{display_unit}.html", "text/html", use_container_width=True)
 
-        if rec_disp is not None:
+        if rec_disp is not None and not rec_disp.empty:
             st.markdown(f"### 0. GL Reconciliation ({display_unit})")
             st.dataframe(rec_disp.style.format("{:,.0f}").applymap(lambda v: 'color:red;' if abs(v)>1 else 'color:green;', subset=['Difference']), use_container_width=True)
 
@@ -204,12 +195,18 @@ if uploaded_file:
         st.dataframe(gl_disp.style.format("{:,.0f}", subset=buckets + ['Total Balance']), use_container_width=True)
 
         c1, c2 = st.columns(2)
-        with c1: st.markdown(f"### 2. Top Payables ({display_unit})"); st.dataframe(ap_disp.style.format("{:,.0f}"), use_container_width=True)
-        with c2: st.markdown(f"### 3. Top Debit Balances ({display_unit})"); st.dataframe(db_disp.style.format("{:,.0f}"), use_container_width=True)
+        with c1: 
+            st.markdown(f"### 2. Top Payables ({display_unit})")
+            if not ap_disp.empty: st.dataframe(ap_disp.style.format("{:,.0f}"), use_container_width=True)
+            else: st.info("No payables data found.")
+        with c2: 
+            st.markdown(f"### 3. Top Debit Balances ({display_unit})")
+            if not db_disp.empty: st.dataframe(db_disp.style.format("{:,.0f}"), use_container_width=True)
+            else: st.info("No debit balance data found.")
 
         if not gap_disp.empty:
             st.divider()
             st.markdown(f"### 🛡️ TB Check : Other Payables (Not Reported in FBL1n) ({display_unit})")
             st.dataframe(gap_disp.style.format("{:,.0f}"), use_container_width=True)
 
-        st.markdown(f"""<div style="position:fixed;bottom:0;left:0;width:100%;background:#f8fafc;text-align:center;padding:5px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;z-index:1000;">AP Analyzing Suite | {st.session_state['user_name']} | {display_unit} View</div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div style="position:fixed;bottom:0;left:0;width:100%;background:#f8fafc;text-align:center;padding:5px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;z-index:1000;">AP Analyzing Suite | {display_unit} View | {st.session_state['user_name']}</div>""", unsafe_allow_html=True)
