@@ -16,7 +16,7 @@ except ImportError:
 # 1. CONFIGURATION & SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella Finance", layout="wide", page_icon="🛡️")
-VERSION_NO = "v30.0" 
+VERSION_NO = "v31.0" 
 
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'view_currency' not in st.session_state: st.session_state['view_currency'] = "Local"
@@ -85,7 +85,7 @@ with st.sidebar:
     st.divider()
     uploaded_file = st.file_uploader("1. FBL1N Report", type=["xlsx", "xls"])
     tb_file = st.file_uploader("2. Trial Balance F.01 (Optional)", type=["xlsx", "xls"])
-    currency = st.selectbox("Base Currency", ["EGP", "TRY", "USD", "TND"], index=1) # Default TRY
+    currency = st.selectbox("Base Currency", ["EGP", "TRY", "USD", "TND"], index=1)
     if 'cur_val' not in st.session_state: st.session_state['cur_val'] = 52.50
     if st.button("🌐 Sync Online EUR Rate"):
         live = get_live_rate(currency)
@@ -117,7 +117,6 @@ if uploaded_file:
             buckets = ["Not Due", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
             df['Bucket'] = pd.to_datetime(df['Payment date']).apply(lambda x: "Not Due" if pd.isna(x) or (report_date - x).days < 0 else ("1-30 Days" if (report_date - x).days <= 30 else ("31-60 Days" if (report_date - x).days <= 60 else ("61-90 Days" if (report_date - x).days <= 90 else "90+ Days"))))
             
-            # Data Aggregations
             gl_pivot = df.pivot_table(index='GL', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
             gl_pivot['Total Balance'] = gl_pivot.sum(axis=1)
             name_map, solar_map, tb_bal_map = smart_parse_tb(tb_file) if tb_file else ({}, {}, {})
@@ -134,11 +133,12 @@ if uploaded_file:
             v_ap = v_raw[v_raw['Total Balance'] < 0].sort_values('Total Balance').head(20).reset_index()
             v_db = v_raw[v_raw['Total Balance'] > 0].sort_values('Total Balance', ascending=False).head(20).reset_index()
 
-            # Prepayments (v26.1 Logic for DP Accounts)
+            # SAFE Prepayments Logic
             dp_gls = ['16740100', '16740110', '16740000']
             v_dp = df[df['GL'].isin(dp_gls)].pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
-            v_dp['Total Balance'] = v_dp.sum(axis=1)
-            v_dp = v_dp.sort_values('Total Balance', ascending=False).reset_index()
+            if not v_dp.empty:
+                v_dp['Total Balance'] = v_dp.sum(axis=1)
+                v_dp = v_dp.sort_values('Total Balance', ascending=False).reset_index()
 
             rec_list, gap_list = [], []
             if tb_file:
@@ -150,13 +150,13 @@ if uploaded_file:
                         gap_list.append({"GL": gl, "GL Name": name_map.get(gl, "-"), "SOLAR Code": "40000", "TB Balance": tb_bal_map.get(gl, 0)})
             
             st.session_state['results'] = {
-                'gl_final': gl_final, 'v_ap': v_ap, 'v_db': v_db, 'v_dp': v_dp,
+                'gl_final': gl_final, 'v_ap': v_ap, 'v_db': v_db, 
+                'v_dp': v_dp if not v_dp.empty else pd.DataFrame(),
                 'rec_df': pd.DataFrame(rec_list) if rec_list else pd.DataFrame(),
                 'gap_df': pd.DataFrame(gap_list) if gap_list else pd.DataFrame(),
                 'buckets': buckets, 'raw_data': df
             }
 
-# --- RENDERING (CRASH PROOF) ---
 if st.session_state['results']:
     res = st.session_state['results']
     def scale_clean(df_in, cols):
@@ -173,12 +173,11 @@ if st.session_state['results']:
     rec_disp = scale_clean(res['rec_df'], ['TB_Balance', 'FBL1n_Sum', 'Difference'])
     gap_disp = scale_clean(res['gap_df'], ['TB Balance'])
 
-    # --- EXPORT PACKS ---
     col_e1, col_e2 = st.columns(2)
     with col_e1:
         titles = ["0. Reconciliation", "1. GL Aging Summary", "2. Top Payables", "3. Top Debit Balances", "🛡️ TB Check"]
         html_out = generate_html_report([rec_disp, gl_disp, ap_disp, db_disp, gap_disp], [f"{t} ({display_unit})" for t in titles], display_unit, eur_rate)
-        st.download_button("📄 Print Dashboard (HTML Export)", html_out, f"Report_{display_unit}.html", "text/html", use_container_width=True)
+        st.download_button("📄 Print Dashboard (HTML Export)", html_out, f"Audit_{display_unit}.html", "text/html", use_container_width=True)
     with col_e2:
         output_dash = io.BytesIO()
         with pd.ExcelWriter(output_dash, engine='xlsxwriter') as writer:
@@ -187,9 +186,8 @@ if st.session_state['results']:
             db_disp.to_excel(writer, sheet_name='Top Debit Balances', index=False)
             if not rec_disp.empty: rec_disp.to_excel(writer, sheet_name='Reconciliation', index=False)
             if not gap_disp.empty: gap_disp.to_excel(writer, sheet_name='TB Check', index=False)
-        st.download_button("📥 Export Dashboard to Excel", output_dash.getvalue(), f"Dashboard_{display_unit}.xlsx", use_container_width=True)
+        st.download_button("📥 Export Dashboard to Excel", output_dash.getvalue(), f"Dash_{display_unit}.xlsx", use_container_width=True)
 
-    # --- DASHBOARD TABLES ---
     if not rec_disp.empty:
         st.markdown(f"### 0. Reconciliation: FBL1n vs TB ({display_unit})")
         try:
@@ -212,29 +210,23 @@ if st.session_state['results']:
         st.markdown(f"### 🛡️ TB Check : Other Payables (Not Reported in FBL1n) ({display_unit})")
         st.dataframe(gap_disp.round(0), use_container_width=True)
 
-    # --- DETAILED REPORT BUTTON (v30.0 SPECIAL) ---
+    # --- DETAILED REPORT (SAFE WRITER) ---
     st.divider()
     output_full = io.BytesIO()
     with pd.ExcelWriter(output_full, engine='xlsxwriter') as writer:
-        # Full Aggregated Data
-        res['gl_final'].to_excel(writer, sheet_name='Full GL Aging (Local)', index=False)
-        res['v_ap'].to_excel(writer, sheet_name='Full Vendor Aging (Local)', index=False)
+        res['gl_final'].to_excel(writer, sheet_name='Full GL Aging', index=False)
+        res['v_ap'].to_excel(writer, sheet_name='Full Vendor Aging', index=False)
         res['v_db'].to_excel(writer, sheet_name='All Debit Balances', index=False)
-        res['v_dp'].to_excel(writer, sheet_name='Prepayments Analysis', index=False)
-        if not res['rec_df'].empty: res['rec_df'].to_excel(writer, sheet_name='Reconciliation Audit', index=False)
-        if not res['gap_df'].empty: res['gap_df'].to_excel(writer, sheet_name='Other Payables Audit', index=False)
-        # Raw Data (Subset for safety)
+        if not res['v_dp'].empty:
+            res['v_dp'].to_excel(writer, sheet_name='Prepayments Analysis', index=False)
+        if not res['rec_df'].empty:
+            res['rec_df'].to_excel(writer, sheet_name='Reconciliation Audit', index=False)
+        if not res['gap_df'].empty:
+            res['gap_df'].to_excel(writer, sheet_name='Other Payables Audit', index=False)
         res['raw_data'].head(5000).to_excel(writer, sheet_name='Raw Sample Data', index=False)
 
-    st.download_button(
-        label="📥 Download Detailed Audit Report (Full Data Pack)",
-        data=output_full.getvalue(),
-        file_name=f"Full_Detailed_Audit_{datetime.now().strftime('%Y%m%d')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-        type="primary"
-    )
+    st.download_button("📥 Download Detailed Audit Report (Full Data Pack)", output_full.getvalue(), f"Full_Audit_Pack_{datetime.now().strftime('%Y%m%d')}.xlsx", use_container_width=True, type="primary")
 
-    st.markdown(f"""<div style="position:fixed;bottom:0;left:0;width:100%;background:#f8fafc;text-align:center;padding:5px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;z-index:1000;">AP Analyzing Suite | {VERSION_NO} | {display_unit} View | Dev by Can Adiguzel</div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="position:fixed;bottom:0;left:0;width:100%;background:#f8fafc;text-align:center;padding:5px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;z-index:1000;">AP Analyzing Suite | Dev by Can Adiguzel</div>""", unsafe_allow_html=True)
 else:
     st.info("👋 Welcome! Please upload FBL1N and F.01 (Mizan) reports and click 'Run Audit Analysis'.")
