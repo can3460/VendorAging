@@ -72,7 +72,6 @@ if not st.session_state['logged_in']:
         else:
             st.markdown("<h1 style='text-align: center; color:#5b21b6;'>Opella</h1>", unsafe_allow_html=True)
         
-        # İSİM GÜNCELLENDİ
         st.markdown("<h3 style='text-align: center;'>Vendor Analysis Tool</h3>", unsafe_allow_html=True)
         st.info("Please enter your company email address.")
         
@@ -133,6 +132,42 @@ def clean_sap_data(df):
         return df.dropna(subset=['Document Number'])
     return df
 
+def process_tb_file(file, fbl1n_gl_summary):
+    """Mizan (TB) dosyasını işler ve FBL1n ile karşılaştırır"""
+    try:
+        df_tb = pd.read_excel(file)
+        
+        # Kolon Eşleştirme (Gelen dosya formatına göre esnek olabilir)
+        # Genelde 'Account Number' ve 'Total of reporting period' kolonlarını ararız
+        acc_col = next((col for col in df_tb.columns if 'Account' in str(col) and 'Number' in str(col)), None)
+        amt_col = next((col for col in df_tb.columns if 'Total' in str(col) and 'reporting' in str(col)), None)
+        
+        if not acc_col or not amt_col:
+            return None, "Error: Could not identify 'Account Number' or Balance columns in TB."
+
+        # Temizlik
+        df_tb = df_tb.dropna(subset=[acc_col])
+        df_tb['GL_Account'] = df_tb[acc_col].astype(str).str.strip()
+        
+        # Sadece sayısal GL'leri al (Başlıkları elemek için)
+        df_tb = df_tb[df_tb['GL_Account'].str.match(r'^\d+$')]
+        
+        # Pivot TB
+        tb_summary = df_tb.groupby('GL_Account')[amt_col].sum().reset_index()
+        tb_summary.rename(columns={amt_col: 'TB_Balance'}, inplace=True)
+        
+        # Merge with FBL1n
+        fbl1n_check = fbl1n_gl_summary.reset_index()[['G/L Account', 'Total Balance']]
+        fbl1n_check.rename(columns={'G/L Account': 'GL_Account', 'Total Balance': 'FBL1n_Sum'}, inplace=True)
+        
+        merged = pd.merge(tb_summary, fbl1n_check, on='GL_Account', how='inner') # Sadece FBL1n'de olanları kıyasla
+        merged['Difference'] = merged['TB_Balance'] - merged['FBL1n_Sum']
+        
+        return merged, "Success"
+        
+    except Exception as e:
+        return None, str(e)
+
 def write_optimized_excel(writer, df, sheet_name):
     if df.empty: return
     workbook = writer.book
@@ -166,9 +201,13 @@ with st.sidebar:
     st.markdown("---")
     
     uploaded_file = None
+    tb_file = None # New variable for TB
+    
     if page_mode == "📊 Dashboard":
         st.header("📂 Data Import")
-        uploaded_file = st.file_uploader("Upload FBL1N Report (Excel)", type=["xlsx", "xls"])
+        uploaded_file = st.file_uploader("1. Upload FBL1N Report (Required)", type=["xlsx", "xls"])
+        # OPTIONAL TB UPLOAD
+        tb_file = st.file_uploader("2. Upload Trial Balance F.01 (Optional)", type=["xlsx", "xls"], help="Upload TB to reconcile GL balances automatically.")
         
         st.markdown("### ⚙️ Parameters")
         currency_list = ["EGP", "TRY", "EUR", "USD", "TND", "AED", "SAR", "GBP"]
@@ -235,14 +274,13 @@ if page_mode == "⚙️ Admin Panel":
 # 6. DASHBOARD LOGIC
 # ==========================================
 elif page_mode == "📊 Dashboard":
-    # İSİM GÜNCELLENDİ
     st.title("📊 Vendor Analysis Tool")
     
     if uploaded_file:
-        st.info("File ready. Check parameters and click Start.")
+        st.info("Files ready. Check parameters and click Start.")
         if st.button("🚀 Start Analysis", type="primary"):
             with st.status("🔄 Processing...", expanded=True) as status:
-                st.write("🧹 Cleaning Data...")
+                st.write("🧹 Cleaning SAP Data...")
                 try:
                     df_raw = pd.read_excel(uploaded_file)
                     df = clean_sap_data(df_raw)
@@ -261,7 +299,7 @@ elif page_mode == "📊 Dashboard":
                     buckets_order = ["Not Due", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
 
                     # ==========================================
-                    # CORE LOGIC & PIVOTS
+                    # CORE LOGIC
                     # ==========================================
                     
                     # 1. GL Summary
@@ -276,6 +314,13 @@ elif page_mode == "📊 Dashboard":
                     gl_final = gl_pivot.reset_index().merge(top_vendors, on='G/L Account', how='left')
                     cols = ['G/L Account', 'Top Driver Vendor'] + buckets_order + ['Total Balance']
                     gl_final = gl_final[cols].sort_values(by='Total Balance', key=abs, ascending=False)
+                    
+                    # --- NEW: TB RECONCILIATION LOGIC ---
+                    df_rec = None
+                    rec_msg = ""
+                    if tb_file:
+                        st.write("⚖️ Performing TB vs FBL1n Reconciliation...")
+                        df_rec, rec_msg = process_tb_file(tb_file, gl_pivot)
 
                     # 2. VENDOR AGING
                     v_raw = df.pivot_table(index=['Supplier', 'Vendor name'], columns='Aging Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets_order, fill_value=0)
@@ -300,6 +345,10 @@ elif page_mode == "📊 Dashboard":
                     # EXPORT
                     output_excel = io.BytesIO()
                     with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
+                        # Write Rec Sheet if exists
+                        if df_rec is not None and not df_rec.empty:
+                            write_optimized_excel(writer, df_rec, 'GL Reconciliation (TB vs FBL1n)')
+                        
                         write_optimized_excel(writer, gl_final, 'GL Summary (BS Review)')
                         write_optimized_excel(writer, v_ap, 'AP Vendor Aging (Credit)')
                         write_optimized_excel(writer, v_debit, 'Debit Balances (Debit)')
@@ -315,11 +364,37 @@ elif page_mode == "📊 Dashboard":
             # ==========================================
             st.caption(f"📅 Report Date: {report_date.strftime('%d-%b-%Y')} | 💱 FX: {safe_rate:,.2f}")
             
+            # --- SECTION 0: RECONCILIATION CHECK (NEW) ---
+            if tb_file:
+                st.markdown("### 0. GL Reconciliation (TB vs FBL1n)")
+                if df_rec is not None and not df_rec.empty:
+                    # Hata formatlaması: Fark 0 değilse kırmızı
+                    st.info("Comparison of Trial Balance (F.01) vs FBL1n Totals")
+                    rec_display = df_rec.copy()
+                    # Görselleştirme
+                    st.dataframe(
+                        rec_display.style.format("{:,.2f}", subset=['TB_Balance', 'FBL1n_Sum', 'Difference'])
+                        .applymap(lambda v: 'color: red; font-weight: bold;' if abs(v) > 1.0 else 'color: green;', subset=['Difference']),
+                        use_container_width=True
+                    )
+                    
+                    diff_sum = df_rec['Difference'].abs().sum()
+                    if diff_sum < 10:
+                        st.success("✅ Perfect Match! No significant variance.")
+                    else:
+                        st.error(f"⚠️ Variance Detected! Total Absolute Difference: {diff_sum:,.2f} {selected_currency}")
+                else:
+                    st.warning(f"Reconciliation skipped: {rec_msg}")
+                st.divider()
+
             # Helper for 'k' view
             def to_k_view(df_in):
                 if df_in.empty: return pd.DataFrame()
                 cols = buckets_order + ['Total Balance']
-                return (df_in.set_index(df_in.columns[0])[cols] / 1000)
+                # Ensure we only divide numeric columns
+                df_out = df_in.copy()
+                df_out[cols] = df_out[cols] / 1000
+                return df_out.set_index(df_in.columns[0])[cols]
 
             # 1. GL
             st.markdown("### 1. GL Account Aging Summary")
@@ -360,29 +435,37 @@ elif page_mode == "📊 Dashboard":
 
             st.divider()
 
-            # 3. DEBIT BALANCES
+            # 3. DEBIT BALANCES (Binlik 'k' Formatı eklendi)
             st.markdown("### 3. Top Debit Balances")
             top_debit_local = v_debit.head(10)
-            
-            # --- FIX: SADECE SAYISAL KOLONLARA FORMAT UYGULA ---
             numeric_cols = buckets_order + ['Total Balance']
 
             if not top_debit_local.empty:
-                disp_debit = top_debit_local[['Vendor name', 'Total Balance'] + buckets_order].copy()
-                st.dataframe(disp_debit.style.format("{:,.2f}", subset=numeric_cols), use_container_width=True)
+                # k birimine çevir
+                disp_debit = top_debit_local.copy()
+                disp_debit[numeric_cols] = disp_debit[numeric_cols] / 1000 
+                
+                # Gösterim (Sütunlar: Vendor, Total, Buckets)
+                show_cols = ['Vendor name', 'Total Balance'] + buckets_order
+                st.dataframe(disp_debit[show_cols].style.format("{:,.1f} k", subset=numeric_cols), use_container_width=True)
             else: st.write("No Debit Balances found.")
 
-            # 4. PREPAYMENTS
+            # 4. PREPAYMENTS (Binlik 'k' Formatı eklendi)
             st.markdown("### 4. Prepayments")
             if not dp_final.empty:
+                # k birimine çevir
+                disp_dp = dp_final.head(10).copy()
+                disp_dp[numeric_cols] = disp_dp[numeric_cols] / 1000
+                
+                show_cols = ['Vendor name', 'Total Balance'] + buckets_order
                 st.dataframe(
-                    dp_final[['Vendor name', 'Total Balance'] + buckets_order].head(10).style.format("{:,.2f}", subset=numeric_cols), 
+                    disp_dp[show_cols].style.format("{:,.1f} k", subset=numeric_cols), 
                     use_container_width=True
                 )
             else: st.success("No Data")
 
             st.markdown("<br>", unsafe_allow_html=True)
-            st.download_button("📥 Download Excel Report", output_excel.getvalue(), f"Opella_AP_{datetime.now().strftime('%Y%m%d')}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
+            st.download_button("📥 Download Excel Report", output_excel.getvalue(), f"Opella_Audit_Pack_{datetime.now().strftime('%Y%m%d')}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
 
     else:
         st.info("👋 Upload FBL1N Excel file to start.")
