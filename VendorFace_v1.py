@@ -19,14 +19,13 @@ except ImportError:
 st.set_page_config(page_title="AP Analyzing Suite | Opella Finance", layout="wide", page_icon="🛡️")
 USER_DB_FILE = "users.xlsx"
 ADMIN_EMAIL = "can.adiguzel@sanofi.com"
-VERSION_NO = "v13.0"  # VERSİYON NUMARASI BURADAN YÖNETİLİR
+VERSION_NO = "v14.0" 
 
 # ==========================================
 # 2. AUTHENTICATION SYSTEM
 # ==========================================
 def load_user_db():
     if not os.path.exists(USER_DB_FILE):
-        # --- GÖMÜLÜ KULLANICI LİSTESİ ---
         initial_users = [
             {"Email": ADMIN_EMAIL, "Name": "Can Adiguzel", "Role": "Admin"},
             {"Email": "AyseDeniz.Sen@sanofi.com", "Name": "AyseDeniz Sen", "Role": "User"},
@@ -66,8 +65,6 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 
 # --- LOGIN SCREEN ---
 if not st.session_state['logged_in']:
-    
-    # --- VERSİYON ROZETİ (SAĞ ÜST KÖŞE) ---
     st.markdown(f"""
     <div style="position: fixed; top: 15px; right: 80px; background: #dbeafe; color: #1e40af; padding: 5px 15px; border-radius: 20px; font-size: 14px; font-weight: bold; font-family: monospace; border: 1px solid #bfdbfe; z-index: 9999; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
         {VERSION_NO}
@@ -82,7 +79,6 @@ if not st.session_state['logged_in']:
         else:
             st.markdown("<h1 style='text-align: center; color:#5b21b6;'>Opella</h1>", unsafe_allow_html=True)
         
-        # --- LOGIN BAŞLIK ALANI ---
         st.markdown("""
         <div style='text-align: center;'>
             <h2 style='color:#1e293b; margin-bottom: 0px;'>AP Analyzing Suite</h2>
@@ -151,10 +147,8 @@ def clean_sap_data(df):
 def process_tb_file(file, fbl1n_gl_summary):
     try:
         df_tb = pd.read_excel(file)
-        
         acc_col = next((col for col in df_tb.columns if 'Account' in str(col) and 'Number' in str(col)), None)
         amt_col = next((col for col in df_tb.columns if 'Total' in str(col) and 'reporting' in str(col)), None)
-        
         name_col = next((col for col in df_tb.columns if ('Text' in str(col) or 'Description' in str(col)) and 'B/S' in str(col)), None)
         if not name_col:
             name_col = next((col for col in df_tb.columns if 'Text' in str(col) and 'Account' not in str(col)), None)
@@ -180,7 +174,6 @@ def process_tb_file(file, fbl1n_gl_summary):
         merged['Difference'] = merged['TB_Balance'] - merged['FBL1n_Sum']
         
         return merged, gl_name_map, "Success"
-        
     except Exception as e:
         return None, {}, str(e)
 
@@ -200,9 +193,57 @@ def write_optimized_excel(writer, df, sheet_name):
     for row_idx, row in enumerate(df.itertuples(index=False), start=1):
         for col_idx, value in enumerate(row):
             worksheet.write(row_idx, col_idx, value, num_fmt if isinstance(value, (int, float)) else txt_fmt)
+    worksheet.set_column(0, 0, 15); worksheet.set_column(1, 1, 35)
+
+# --- NEW: HTML REPORT GENERATOR ---
+def generate_html_report(dataframes, titles, currency, rate):
+    """
+    Creates a styled HTML report that looks good when printed to PDF or copied to Outlook.
+    """
+    html_content = f"""
+    <html>
+    <head>
+        <style>
+            body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; }}
+            h1 {{ color: #1e3a8a; border-bottom: 2px solid #5b21b6; padding-bottom: 10px; }}
+            h2 {{ color: #1e40af; margin-top: 30px; }}
+            table {{ border-collapse: collapse; width: 100%; margin-bottom: 20px; font-size: 12px; }}
+            th {{ background-color: #f1f5f9; color: #0f172a; padding: 8px; border: 1px solid #cbd5e1; text-align: left; }}
+            td {{ padding: 8px; border: 1px solid #cbd5e1; text-align: right; }}
+            td:first-child {{ text-align: left; font-weight: bold; }}
+            .footer {{ margin-top: 50px; font-size: 10px; color: #64748b; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 10px; }}
+            .info {{ background-color: #eff6ff; padding: 10px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #bfdbfe; }}
+        </style>
+    </head>
+    <body>
+        <h1>📊 AP Analysis Report | Opella Finance</h1>
+        <div class="info">
+            <strong>Report Date:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M')}<br>
+            <strong>Currency:</strong> {currency} (Rate: {rate:,.2f})
+        </div>
+    """
+    
+    for df, title in zip(dataframes, titles):
+        if not df.empty:
+            html_content += f"<h2>{title}</h2>"
+            # Format DataFrame for HTML (Add k, comma separators)
+            df_fmt = df.copy()
+            # Try formatting numeric columns
+            for col in df_fmt.select_dtypes(include=['float', 'int']).columns:
+                df_fmt[col] = df_fmt[col].apply(lambda x: f"{x:,.1f}")
             
-    worksheet.set_column(0, 0, 15) 
-    worksheet.set_column(1, 1, 35)
+            html_content += df_fmt.to_html(index=False, border=0, classes='table')
+        else:
+             html_content += f"<h2>{title}</h2><p>No data available.</p>"
+
+    html_content += """
+        <div class="footer">
+            Generated by AP Analyzing Suite | Developed by Can Adiguzel with Gemini AI
+        </div>
+    </body>
+    </html>
+    """
+    return html_content
 
 # ==========================================
 # 4. SIDEBAR & NAVIGATION
@@ -297,7 +338,6 @@ if page_mode == "⚙️ Admin Panel":
 # ==========================================
 elif page_mode == "📊 Dashboard":
     
-    # --- YENİ BAŞLIK TASARIMI ---
     st.markdown("""
     <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px;">
         <div>
@@ -338,8 +378,6 @@ elif page_mode == "📊 Dashboard":
                     # ==========================================
                     # CORE LOGIC
                     # ==========================================
-                    
-                    # 1. GL Summary Base
                     gl_pivot = df.pivot_table(index=['G/L Account'], columns='Aging Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets_order, fill_value=0)
                     gl_pivot['Total Balance'] = gl_pivot.sum(axis=1)
                     
@@ -350,7 +388,6 @@ elif page_mode == "📊 Dashboard":
                     top_vendors = df.groupby('G/L Account').apply(get_top_driver).reset_index(name='Top Driver Vendor')
                     gl_final = gl_pivot.reset_index().merge(top_vendors, on='G/L Account', how='left')
                     
-                    # --- RECONCILIATION & GL MAPPING ---
                     df_rec = None
                     gl_map = {}
                     rec_msg = ""
@@ -359,7 +396,6 @@ elif page_mode == "📊 Dashboard":
                         st.write("⚖️ Performing Reconciliation & GL Mapping...")
                         df_rec, gl_map, rec_msg = process_tb_file(tb_file, gl_pivot)
                     
-                    # GL Name Mapping
                     if gl_map:
                         gl_final['GL Description'] = gl_final['G/L Account'].map(gl_map).fillna("-")
                     else:
@@ -368,15 +404,11 @@ elif page_mode == "📊 Dashboard":
                     cols = ['G/L Account', 'GL Description', 'Top Driver Vendor'] + buckets_order + ['Total Balance']
                     gl_final = gl_final[cols].sort_values(by='Total Balance', key=abs, ascending=False)
 
-                    # 2. VENDOR AGING
                     v_raw = df.pivot_table(index=['Supplier', 'Vendor name'], columns='Aging Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets_order, fill_value=0)
                     v_raw['Total Balance'] = v_raw.sum(axis=1)
                     v_ap = v_raw[v_raw['Total Balance'] < 0].copy().sort_values(by='Total Balance', ascending=True).reset_index()
-
-                    # 3. DEBIT BALANCES
                     v_debit = v_raw[v_raw['Total Balance'] > 0].copy().sort_values(by='Total Balance', ascending=False).reset_index()
 
-                    # 4. PREPAYMENTS
                     dp_gls = ['16740100', '16740110', '16740000']
                     dp_df = df[df['G/L Account'].isin(dp_gls)]
                     dp_final = pd.DataFrame()
@@ -385,17 +417,30 @@ elif page_mode == "📊 Dashboard":
                         dp_piv['Total Balance'] = dp_piv.sum(axis=1)
                         dp_final = dp_piv.sort_values(by='Total Balance', ascending=False).reset_index()
 
-                    # EXPORT
+                    # --- EXPORT EXCEL ---
                     output_excel = io.BytesIO()
                     with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
                         if df_rec is not None and not df_rec.empty:
                             write_optimized_excel(writer, df_rec, 'GL Reconciliation')
-                        
                         write_optimized_excel(writer, gl_final, 'GL Summary (BS Review)')
                         write_optimized_excel(writer, v_ap, 'AP Vendor Aging (Credit)')
                         write_optimized_excel(writer, v_debit, 'Debit Balances (Debit)')
                         write_optimized_excel(writer, dp_final, 'Prepayments')
+
+                    # --- PREPARE HTML REPORT DATA ---
+                    # Helper to convert to 'k' view for report
+                    def to_k_report(df_in):
+                        if df_in.empty: return pd.DataFrame()
+                        cols_to_use = [c for c in df_in.columns if c in buckets_order or c == 'Total Balance']
+                        df_out = df_in.copy()
+                        df_out[cols_to_use] = df_out[cols_to_use] / 1000
+                        return df_out
                     
+                    # Preparing tables for HTML report
+                    html_dfs = [to_k_report(gl_final.head(20)), to_k_report(v_ap.head(20)), to_k_report(v_debit.head(20)), to_k_report(dp_final.head(20))]
+                    html_titles = ["1. GL Summary (Top 20 - k)", "2. Payables (Top 20 - k)", "3. Debit Balances (Top 20 - k)", "4. Prepayments (Top 20 - k)"]
+                    html_report = generate_html_report(html_dfs, html_titles, selected_currency, safe_rate)
+
                     status.update(label="✅ Ready!", state="complete", expanded=False)
                 except Exception as e:
                     st.error(f"Error: {e}")
@@ -406,6 +451,27 @@ elif page_mode == "📊 Dashboard":
             # ==========================================
             st.caption(f"📅 Report Date: {report_date.strftime('%d-%b-%Y')} | 💱 FX: {safe_rate:,.2f}")
             
+            # --- DOWNLOAD BUTTONS ROW ---
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                st.download_button(
+                    "📥 Download Excel (Full Data)", 
+                    output_excel.getvalue(), 
+                    f"Opella_AP_Data_{datetime.now().strftime('%Y%m%d')}.xlsx", 
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                    type="primary",
+                    use_container_width=True
+                )
+            with col_d2:
+                st.download_button(
+                    "📄 Download Smart Report (Outlook/PDF)",
+                    html_report,
+                    f"Opella_Smart_Report_{datetime.now().strftime('%Y%m%d')}.html",
+                    "text/html",
+                    help="Downloads a styled HTML report. Open it, select tables to Copy-Paste to Outlook, or Print to PDF.",
+                    use_container_width=True
+                )
+
             # --- RECONCILIATION ---
             if tb_file and df_rec is not None:
                 st.markdown("### 0. GL Reconciliation (TB vs FBL1n)")
@@ -494,15 +560,14 @@ elif page_mode == "📊 Dashboard":
             else: st.success("No Data")
 
             st.markdown("<br>", unsafe_allow_html=True)
-            st.download_button("📥 Download Excel Report", output_excel.getvalue(), f"Opella_Audit_Pack_{datetime.now().strftime('%Y%m%d')}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
-
+            
             # --- ORIGINAL FOOTER (RESTORED) ---
             st.markdown("""
             <div style="position: fixed; bottom: 0; left: 0; width: 100%; background-color: #f1f5f9; padding: 10px; text-align: center; border-top: 1px solid #e2e8f0; font-family: monospace; font-size: 12px; color: #64748b; z-index: 9999;">
                 AP Analyzing Suite | Developed by <b>Can Adiguzel</b> with <span style="background: -webkit-linear-gradient(45deg, #4285F4, #9B72CB); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: bold;">Gemini AI</span> technologies
             </div>
             <style>
-                div[data-testid="stSidebar"] { padding-bottom: 50px; } /* Footer üstüne binmesin */
+                div[data-testid="stSidebar"] { padding-bottom: 50px; } 
                 .main .block-container { padding-bottom: 80px; } 
             </style>
             """, unsafe_allow_html=True)
