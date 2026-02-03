@@ -16,7 +16,7 @@ except ImportError:
 # 1. CONFIGURATION & SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella Finance", layout="wide", page_icon="🛡️")
-VERSION_NO = "v31.4" 
+VERSION_NO = "v31.5" 
 
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'view_currency' not in st.session_state: st.session_state['view_currency'] = "Local"
@@ -124,21 +124,19 @@ if uploaded_file:
             buckets = ["Not Due", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
             df['Bucket'] = pd.to_datetime(df['Payment date']).apply(lambda x: "Not Due" if pd.isna(x) or (report_date - x).days < 0 else ("1-30 Days" if (report_date - x).days <= 30 else ("31-60 Days" if (report_date - x).days <= 60 else ("61-90 Days" if (report_date - x).days <= 90 else "90+ Days"))))
             
-            # --- FULL VENDOR AGING (NO FILTERING FOR EXCEL) ---
+            # Full Dataset Aggregation
             v_full_raw = df.pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
             v_full_raw['Total Balance'] = v_full_raw.sum(axis=1)
             
-            # --- DASHBOARD SUMMARY (TOP 20) ---
-            v_ap_top20 = v_full_raw[v_full_raw['Total Balance'] < 0].sort_values('Total Balance').head(20).reset_index()
-            v_db_top20 = v_full_raw[v_full_raw['Total Balance'] > 0].sort_values('Total Balance', ascending=False).head(20).reset_index()
-            v_db_full = v_full_raw[v_full_raw['Total Balance'] > 0].sort_values('Total Balance', ascending=False).reset_index()
+            # Dashboard Views (Top 20)
+            v_ap_dash = v_full_raw[v_full_raw['Total Balance'] < 0].sort_values('Total Balance').head(20).reset_index()
+            v_db_dash = v_full_raw[v_full_raw['Total Balance'] > 0].sort_values('Total Balance', ascending=False).head(20).reset_index()
             
-            # GL Mapping
+            # GL Integration
             gl_pivot = df.pivot_table(index='GL', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
             gl_pivot['Total Balance'] = gl_pivot.sum(axis=1)
             name_map, solar_map, tb_bal_map = smart_parse_tb(tb_file) if tb_file else ({}, {}, {})
             drivers = df.groupby('GL').apply(lambda x: x.groupby('Vendor')['Amount'].sum().abs().idxmax() if not x.empty else "-").to_dict()
-            
             gl_final = gl_pivot.reset_index()
             gl_final['GL Name'] = gl_final['GL'].map(name_map).fillna("-")
             gl_final['SOLAR Code'] = gl_final['GL'].map(solar_map).fillna("-")
@@ -163,8 +161,8 @@ if uploaded_file:
             
             st.session_state['results'] = {
                 'gl_final': gl_final, 
-                'v_ap_dash': v_ap_top20, 'v_db_dash': v_db_top20,
-                'v_full_aging': v_full_raw.reset_index(), 'v_db_full': v_db_full,
+                'v_ap_dash': v_ap_dash, 'v_db_dash': v_db_dash,
+                'v_full_aging': v_full_raw.reset_index(),
                 'v_dp_full': v_dp_full if not v_dp_full.empty else pd.DataFrame(),
                 'rec_df': pd.DataFrame(rec_list) if rec_list else pd.DataFrame(),
                 'gap_df': pd.DataFrame(gap_list) if gap_list else pd.DataFrame(),
@@ -187,7 +185,7 @@ if st.session_state['results']:
     rec_disp = scale_clean_int(res['rec_df'], ['TB_Balance', 'FBL1n_Sum', 'Difference'])
     gap_disp = scale_clean_int(res['gap_df'], ['TB Balance'])
 
-    # --- EXPORT PACKS ---
+    # --- EXPORTS ---
     col_e1, col_e2 = st.columns(2)
     with col_e1:
         titles = ["0. Reconciliation", "1. GL Aging Summary", "2. Top Payables", "3. Top Debit Balances", "🛡️ TB Check"]
@@ -223,29 +221,24 @@ if st.session_state['results']:
         st.divider(); st.markdown(f"### 🛡️ TB Check : Other Payables (Not Reported in FBL1n) ({display_unit})")
         st.dataframe(gap_disp, column_config={"TB Balance": st.column_config.NumberColumn(format="%d")}, use_container_width=True)
 
-    # --- DETAILED REPORT (FULL VENDOR LIST) ---
+    # --- FULL DETAILED REPORT ---
     st.divider()
     output_full = io.BytesIO()
     with pd.ExcelWriter(output_full, engine='xlsxwriter') as writer:
         res['gl_final'].to_excel(writer, sheet_name='Full GL Aging', index=False)
         res['v_full_aging'].to_excel(writer, sheet_name='All Vendors Aging', index=False)
-        res['v_db_full'].to_excel(writer, sheet_name='All Debit Balances', index=False)
-        if not res['v_dp_full'].empty: 
-            res['v_dp_full'].to_excel(writer, sheet_name='Prepayments Analysis', index=False)
-        if not res['rec_df'].empty: 
-            res['rec_df'].to_excel(writer, sheet_name='Reconciliation Audit', index=False)
-        if not res['gap_df'].empty: 
-            res['gap_df'].to_excel(writer, sheet_name='Other Payables Audit', index=False)
-        res['raw_data'].head(7000).to_excel(writer, sheet_name='Raw Sample Data', index=False)
+        if not res['v_dp_full'].empty: res['v_dp_full'].to_excel(writer, sheet_name='Prepayments Analysis', index=False)
+        if not res['rec_df'].empty: res['rec_df'].to_excel(writer, sheet_name='Reconciliation Audit', index=False)
+        if not res['gap_df'].empty: res['gap_df'].to_excel(writer, sheet_name='Other Payables Audit', index=False)
+        res['raw_data'].head(5000).to_excel(writer, sheet_name='Raw Data Sample', index=False)
 
     st.download_button(
-        label=f"📥 Download Detailed Audit Report (Full Data - {len(res['v_full_aging'])} Vendors)",
+        label=f"📥 Download Detailed Audit Report (Full Dataset)",
         data=output_full.getvalue(),
         file_name=f"Full_Audit_Pack_{datetime.now().strftime('%Y%m%d')}.xlsx",
-        use_container_width=True, 
-        type="primary"
+        use_container_width=True, type="primary"
     )
 
-    st.markdown(f"""<div style="position:fixed;bottom:0;left:0;width:100%;background:#f8fafc;text-align:center;padding:5px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;z-index:1000;">AP Analyzing Suite | Dev by Can Adiguzel | Opella Finance Operations</div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="position:fixed;bottom:0;left:0;width:100%;background:#f8fafc;text-align:center;padding:5px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;z-index:1000;">AP Analyzing Suite | Dev by Can Adiguzel | Opella Finance</div>""", unsafe_allow_html=True)
 else:
     st.info("👋 Welcome! Please upload FBL1N and F.01 (Mizan) reports and click 'Run Audit Analysis'.")
