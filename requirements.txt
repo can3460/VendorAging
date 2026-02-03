@@ -1,6 +1,6 @@
-yfinance
-xlsxwriter
+streamlit
 pandas
 numpy
-streamlit
+xlsxwriter
 openpyxl
+yfinance
