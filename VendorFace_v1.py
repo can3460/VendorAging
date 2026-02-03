@@ -16,7 +16,7 @@ except ImportError:
 # 1. CONFIGURATION & SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella Finance", layout="wide", page_icon="🛡️")
-VERSION_NO = "v31.3" 
+VERSION_NO = "v31.4" 
 
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'view_currency' not in st.session_state: st.session_state['view_currency'] = "Local"
@@ -55,7 +55,7 @@ def smart_parse_tb(file):
 
 def generate_html_report(dfs, titles, display_curr, rate):
     html = f"<html><head><style>body{{font-family:sans-serif;padding:20px;}}h2{{color:#1e40af;border-bottom:2px solid #5b21b6;}}table{{border-collapse:collapse;width:100%;margin-bottom:20px;font-size:11px;}}th{{background:#f1f5f9;padding:8px;border:1px solid #cbd5e1;}}td{{padding:6px;border:1px solid #cbd5e1;text-align:right;}}td:first-child{{text-align:left;font-weight:bold;}}</style></head><body>"
-    html += f"<h1>AP Analyzing Suite Report ({display_curr})</h1><p>Date: {datetime.now().strftime('%Y-%m-%d %H:%M')} | FX Rate: {rate:,.4f}</p>"
+    html += f"<h1>AP Analyzing Suite Audit Report ({display_curr})</h1><p>Date: {datetime.now().strftime('%Y-%m-%d %H:%M')} | FX Rate: {rate:,.4f}</p>"
     for df, title in zip(dfs, titles):
         if df is not None and not df.empty:
             html += f"<h3>{title}</h3>"
@@ -114,7 +114,7 @@ scalar = 1000 if st.session_state['view_currency'] == "Local" else (1000 * eur_r
 
 if uploaded_file:
     if st.button("🚀 Run Audit Analysis", type="primary", use_container_width=True):
-        with st.status("🔄 Processing..."):
+        with st.status("🔄 Harmonizing Data..."):
             df_raw = pd.read_excel(uploaded_file)
             df = df_raw.dropna(subset=['Document Number']) if 'Document Number' in df_raw.columns else df_raw
             df['Amount'] = pd.to_numeric(df['Amount in local currency'], errors='coerce').fillna(0)
@@ -123,22 +123,35 @@ if uploaded_file:
             report_date = pd.to_datetime(df['Posting Date']).max()
             buckets = ["Not Due", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
             df['Bucket'] = pd.to_datetime(df['Payment date']).apply(lambda x: "Not Due" if pd.isna(x) or (report_date - x).days < 0 else ("1-30 Days" if (report_date - x).days <= 30 else ("31-60 Days" if (report_date - x).days <= 60 else ("61-90 Days" if (report_date - x).days <= 90 else "90+ Days"))))
+            
+            # --- FULL VENDOR AGING (NO FILTERING FOR EXCEL) ---
+            v_full_raw = df.pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
+            v_full_raw['Total Balance'] = v_full_raw.sum(axis=1)
+            
+            # --- DASHBOARD SUMMARY (TOP 20) ---
+            v_ap_top20 = v_full_raw[v_full_raw['Total Balance'] < 0].sort_values('Total Balance').head(20).reset_index()
+            v_db_top20 = v_full_raw[v_full_raw['Total Balance'] > 0].sort_values('Total Balance', ascending=False).head(20).reset_index()
+            v_db_full = v_full_raw[v_full_raw['Total Balance'] > 0].sort_values('Total Balance', ascending=False).reset_index()
+            
+            # GL Mapping
             gl_pivot = df.pivot_table(index='GL', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
             gl_pivot['Total Balance'] = gl_pivot.sum(axis=1)
             name_map, solar_map, tb_bal_map = smart_parse_tb(tb_file) if tb_file else ({}, {}, {})
             drivers = df.groupby('GL').apply(lambda x: x.groupby('Vendor')['Amount'].sum().abs().idxmax() if not x.empty else "-").to_dict()
+            
             gl_final = gl_pivot.reset_index()
             gl_final['GL Name'] = gl_final['GL'].map(name_map).fillna("-")
             gl_final['SOLAR Code'] = gl_final['GL'].map(solar_map).fillna("-")
             gl_final['Main Driver'] = gl_final['GL'].map(drivers).fillna("-")
             gl_final = gl_final[['GL', 'GL Name', 'SOLAR Code', 'Main Driver'] + buckets + ['Total Balance']].sort_values('Total Balance', key=abs, ascending=False)
-            v_raw = df.pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
-            v_raw['Total Balance'] = v_raw.sum(axis=1)
-            v_ap = v_raw[v_raw['Total Balance'] < 0].sort_values('Total Balance').head(20).reset_index()
-            v_db = v_raw[v_raw['Total Balance'] > 0].sort_values('Total Balance', ascending=False).head(20).reset_index()
+
+            # Prepayments (Full)
             dp_gls = ['16740100', '16740110', '16740000']
-            v_dp = df[df['GL'].isin(dp_gls)].pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
-            if not v_dp.empty: v_dp['Total Balance'] = v_dp.sum(axis=1); v_dp = v_dp.sort_values('Total Balance', ascending=False).reset_index()
+            v_dp_full = df[df['GL'].isin(dp_gls)].pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
+            if not v_dp_full.empty:
+                v_dp_full['Total Balance'] = v_dp_full.sum(axis=1)
+                v_dp_full = v_dp_full.sort_values('Total Balance', ascending=False).reset_index()
+
             rec_list, gap_list = [], []
             if tb_file:
                 for gl in gl_pivot.index:
@@ -147,7 +160,16 @@ if uploaded_file:
                 for gl, s_c in solar_map.items():
                     if str(s_c).strip() == '40000' and gl not in gl_pivot.index:
                         gap_list.append({"GL": gl, "GL Name": name_map.get(gl, "-"), "SOLAR Code": "40000", "TB Balance": tb_bal_map.get(gl, 0)})
-            st.session_state['results'] = {'gl_final': gl_final, 'v_ap': v_ap, 'v_db': v_db, 'v_dp': v_dp if not v_dp.empty else pd.DataFrame(), 'rec_df': pd.DataFrame(rec_list) if rec_list else pd.DataFrame(), 'gap_df': pd.DataFrame(gap_list) if gap_list else pd.DataFrame(), 'buckets': buckets, 'raw_data': df}
+            
+            st.session_state['results'] = {
+                'gl_final': gl_final, 
+                'v_ap_dash': v_ap_top20, 'v_db_dash': v_db_top20,
+                'v_full_aging': v_full_raw.reset_index(), 'v_db_full': v_db_full,
+                'v_dp_full': v_dp_full if not v_dp_full.empty else pd.DataFrame(),
+                'rec_df': pd.DataFrame(rec_list) if rec_list else pd.DataFrame(),
+                'gap_df': pd.DataFrame(gap_list) if gap_list else pd.DataFrame(),
+                'buckets': buckets, 'raw_data': df
+            }
 
 if st.session_state['results']:
     res = st.session_state['results']
@@ -160,12 +182,12 @@ if st.session_state['results']:
         return df_out
 
     gl_disp = scale_clean_int(res['gl_final'], res['buckets'] + ['Total Balance'])
-    ap_disp = scale_clean_int(res['v_ap'], res['buckets'] + ['Total Balance'])
-    db_disp = scale_clean_int(res['v_db'], res['buckets'] + ['Total Balance'])
+    ap_disp = scale_clean_int(res['v_ap_dash'], res['buckets'] + ['Total Balance'])
+    db_disp = scale_clean_int(res['v_db_dash'], res['buckets'] + ['Total Balance'])
     rec_disp = scale_clean_int(res['rec_df'], ['TB_Balance', 'FBL1n_Sum', 'Difference'])
     gap_disp = scale_clean_int(res['gap_df'], ['TB Balance'])
 
-    # --- EXPORT ---
+    # --- EXPORT PACKS ---
     col_e1, col_e2 = st.columns(2)
     with col_e1:
         titles = ["0. Reconciliation", "1. GL Aging Summary", "2. Top Payables", "3. Top Debit Balances", "🛡️ TB Check"]
@@ -174,10 +196,12 @@ if st.session_state['results']:
     with col_e2:
         output_dash = io.BytesIO()
         with pd.ExcelWriter(output_dash, engine='xlsxwriter') as writer:
-            gl_disp.to_excel(writer, sheet_name='GL Aging', index=False); ap_disp.to_excel(writer, sheet_name='Top Payables', index=False); db_disp.to_excel(writer, sheet_name='Top Debit Balances', index=False)
+            gl_disp.to_excel(writer, sheet_name='GL Aging Summary', index=False)
+            ap_disp.to_excel(writer, sheet_name='Top Payables', index=False)
+            db_disp.to_excel(writer, sheet_name='Top Debit Balances', index=False)
             if not rec_disp.empty: rec_disp.to_excel(writer, sheet_name='Reconciliation', index=False)
             if not gap_disp.empty: gap_disp.to_excel(writer, sheet_name='TB Check', index=False)
-        st.download_button("📥 Export Dashboard to Excel", output_dash.getvalue(), f"Dash_{display_unit}.xlsx", use_container_width=True)
+        st.download_button("📥 Export Dashboard to Excel", output_dash.getvalue(), f"Summary_{display_unit}.xlsx", use_container_width=True)
 
     # --- TABLES (SAFE RENDER) ---
     if not rec_disp.empty:
@@ -199,14 +223,29 @@ if st.session_state['results']:
         st.divider(); st.markdown(f"### 🛡️ TB Check : Other Payables (Not Reported in FBL1n) ({display_unit})")
         st.dataframe(gap_disp, column_config={"TB Balance": st.column_config.NumberColumn(format="%d")}, use_container_width=True)
 
-    st.divider(); output_full = io.BytesIO()
+    # --- DETAILED REPORT (FULL VENDOR LIST) ---
+    st.divider()
+    output_full = io.BytesIO()
     with pd.ExcelWriter(output_full, engine='xlsxwriter') as writer:
-        res['gl_final'].to_excel(writer, sheet_name='Full GL Aging', index=False); res['v_ap'].to_excel(writer, sheet_name='Full Vendor Aging', index=False); res['v_db'].to_excel(writer, sheet_name='All Debit Balances', index=False)
-        if not res['v_dp'].empty: res['v_dp'].to_excel(writer, sheet_name='Prepayments Analysis', index=False)
-        if not res['rec_df'].empty: res['rec_df'].to_excel(writer, sheet_name='Reconciliation Audit', index=False)
-        if not res['gap_df'].empty: res['gap_df'].to_excel(writer, sheet_name='Other Payables Audit', index=False)
-        res['raw_data'].head(5000).to_excel(writer, sheet_name='Raw Sample Data', index=False)
-    st.download_button("📥 Download Detailed Audit Report (Full Data Pack)", output_full.getvalue(), f"Full_Audit_Pack_{datetime.now().strftime('%Y%m%d')}.xlsx", use_container_width=True, type="primary")
-    st.markdown(f"""<div style="position:fixed;bottom:0;left:0;width:100%;background:#f8fafc;text-align:center;padding:5px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;z-index:1000;">AP Analyzing Suite | Dev by Can Adiguzel | Opella Finance</div>""", unsafe_allow_html=True)
+        res['gl_final'].to_excel(writer, sheet_name='Full GL Aging', index=False)
+        res['v_full_aging'].to_excel(writer, sheet_name='All Vendors Aging', index=False)
+        res['v_db_full'].to_excel(writer, sheet_name='All Debit Balances', index=False)
+        if not res['v_dp_full'].empty: 
+            res['v_dp_full'].to_excel(writer, sheet_name='Prepayments Analysis', index=False)
+        if not res['rec_df'].empty: 
+            res['rec_df'].to_excel(writer, sheet_name='Reconciliation Audit', index=False)
+        if not res['gap_df'].empty: 
+            res['gap_df'].to_excel(writer, sheet_name='Other Payables Audit', index=False)
+        res['raw_data'].head(7000).to_excel(writer, sheet_name='Raw Sample Data', index=False)
+
+    st.download_button(
+        label=f"📥 Download Detailed Audit Report (Full Data - {len(res['v_full_aging'])} Vendors)",
+        data=output_full.getvalue(),
+        file_name=f"Full_Audit_Pack_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        use_container_width=True, 
+        type="primary"
+    )
+
+    st.markdown(f"""<div style="position:fixed;bottom:0;left:0;width:100%;background:#f8fafc;text-align:center;padding:5px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;z-index:1000;">AP Analyzing Suite | Dev by Can Adiguzel | Opella Finance Operations</div>""", unsafe_allow_html=True)
 else:
     st.info("👋 Welcome! Please upload FBL1N and F.01 (Mizan) reports and click 'Run Audit Analysis'.")
