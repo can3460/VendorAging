@@ -16,7 +16,7 @@ except ImportError:
 # ==========================================
 # 1. CONFIGURATION & SETUP
 # ==========================================
-st.set_page_config(page_title="VendorFace | Opella Finance", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="Vendor Analysis Tool | Opella Finance", layout="wide", page_icon="🛡️")
 USER_DB_FILE = "users.xlsx"
 ADMIN_EMAIL = "can.adiguzel@sanofi.com" 
 
@@ -72,7 +72,8 @@ if not st.session_state['logged_in']:
         else:
             st.markdown("<h1 style='text-align: center; color:#5b21b6;'>Opella</h1>", unsafe_allow_html=True)
         
-        st.markdown("<h3 style='text-align: center;'>VendorFace Login</h3>", unsafe_allow_html=True)
+        # İSİM GÜNCELLENDİ
+        st.markdown("<h3 style='text-align: center;'>Vendor Analysis Tool</h3>", unsafe_allow_html=True)
         st.info("Please enter your company email address.")
         
         with st.form("login_form"):
@@ -234,7 +235,8 @@ if page_mode == "⚙️ Admin Panel":
 # 6. DASHBOARD LOGIC
 # ==========================================
 elif page_mode == "📊 Dashboard":
-    st.title("📊 Executive BS Review Dashboard")
+    # İSİM GÜNCELLENDİ
+    st.title("📊 Vendor Analysis Tool")
     
     if uploaded_file:
         st.info("File ready. Check parameters and click Start.")
@@ -262,7 +264,7 @@ elif page_mode == "📊 Dashboard":
                     # CORE LOGIC & PIVOTS
                     # ==========================================
                     
-                    # --- 1. GL Summary (Absolute Sort - Standard for GL) ---
+                    # 1. GL Summary
                     gl_pivot = df.pivot_table(index=['G/L Account'], columns='Aging Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets_order, fill_value=0)
                     gl_pivot['Total Balance'] = gl_pivot.sum(axis=1)
                     
@@ -275,33 +277,27 @@ elif page_mode == "📊 Dashboard":
                     cols = ['G/L Account', 'Top Driver Vendor'] + buckets_order + ['Total Balance']
                     gl_final = gl_final[cols].sort_values(by='Total Balance', key=abs, ascending=False)
 
-                    # --- 2. VENDOR AGING (Only Negatives / Ascending) ---
-                    # Pivot First
+                    # 2. VENDOR AGING
                     v_raw = df.pivot_table(index=['Supplier', 'Vendor name'], columns='Aging Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets_order, fill_value=0)
                     v_raw['Total Balance'] = v_raw.sum(axis=1)
                     
-                    # FILTER: Only Negative Balances (Credit Side)
                     v_ap = v_raw[v_raw['Total Balance'] < 0].copy()
-                    # SORT: Ascending (Most negative first: -1M, -500k...)
                     v_ap = v_ap.sort_values(by='Total Balance', ascending=True).reset_index()
 
-                    # --- 3. DEBIT BALANCES (Only Positives / Descending) ---
-                    # FILTER: Only Positive Balances (Debit Side)
+                    # 3. DEBIT BALANCES
                     v_debit = v_raw[v_raw['Total Balance'] > 0].copy()
-                    # SORT: Descending (Largest positive first: +1M, +500k...)
                     v_debit = v_debit.sort_values(by='Total Balance', ascending=False).reset_index()
 
-                    # --- 4. PREPAYMENTS (Logic Preserved) ---
+                    # 4. PREPAYMENTS
                     dp_gls = ['16740100', '16740110', '16740000']
                     dp_df = df[df['G/L Account'].isin(dp_gls)]
                     dp_final = pd.DataFrame()
                     if not dp_df.empty:
                         dp_piv = dp_df.pivot_table(index=['Supplier', 'Vendor name'], columns='Aging Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets_order, fill_value=0)
                         dp_piv['Total Balance'] = dp_piv.sum(axis=1)
-                        # Prepayments are usually Debit (+), so Sort Descending
                         dp_final = dp_piv.sort_values(by='Total Balance', ascending=False).reset_index()
 
-                    # --- EXPORT PREPARATION ---
+                    # EXPORT
                     output_excel = io.BytesIO()
                     with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
                         write_optimized_excel(writer, gl_final, 'GL Summary (BS Review)')
@@ -319,16 +315,14 @@ elif page_mode == "📊 Dashboard":
             # ==========================================
             st.caption(f"📅 Report Date: {report_date.strftime('%d-%b-%Y')} | 💱 FX: {safe_rate:,.2f}")
             
-            # Helper for 'k' view display only
+            # Helper for 'k' view
             def to_k_view(df_in):
                 if df_in.empty: return pd.DataFrame()
                 cols = buckets_order + ['Total Balance']
-                # Data is already sorted in logic block, just dividing
                 return (df_in.set_index(df_in.columns[0])[cols] / 1000)
 
             # 1. GL
             st.markdown("### 1. GL Account Aging Summary")
-            # GL için kEUR hesaplaması tekrar yapılmalı çünkü yukarıdaki logic Local üzerinden yapıldı
             gl_eur_raw = df.pivot_table(index=['G/L Account'], columns='Aging Bucket', values='Amount_EUR', aggfunc='sum', fill_value=0).reindex(columns=buckets_order, fill_value=0)
             gl_eur_raw['Total Balance'] = gl_eur_raw.sum(axis=1)
             gl_eur_final = gl_eur_raw.sort_values(by='Total Balance', key=abs, ascending=False)
@@ -336,7 +330,6 @@ elif page_mode == "📊 Dashboard":
             c1, c2 = st.columns(2)
             with c1:
                 st.info(f"**k{selected_currency}**")
-                # GL Display Logic: Index is G/L Account
                 gl_disp = gl_final.set_index('G/L Account')[buckets_order + ['Total Balance']] / 1000
                 st.dataframe(gl_disp.style.format("{:,.0f}"), use_container_width=True)
             with c2:
@@ -345,15 +338,12 @@ elif page_mode == "📊 Dashboard":
             
             st.divider()
 
-            # 2. VENDOR AGING (Negatives Only)
+            # 2. VENDOR AGING
             st.markdown("### 2. Vendor Aging (Payables Only)")
-            # Re-calculate Top 10 for dashboard based on NEW Logic (Negatives only)
             top_ap_local = v_ap.head(10)
             
-            # For EUR view, we need to filter raw EUR pivot with same index or re-pivot
             v_eur_raw = df.pivot_table(index=['Supplier', 'Vendor name'], columns='Aging Bucket', values='Amount_EUR', aggfunc='sum', fill_value=0).reindex(columns=buckets_order, fill_value=0)
             v_eur_raw['Total Balance'] = v_eur_raw.sum(axis=1)
-            # Filter & Sort same as Local
             v_eur_ap = v_eur_raw[v_eur_raw['Total Balance'] < 0].sort_values(by='Total Balance', ascending=True).reset_index().head(10)
 
             c3, c4 = st.columns(2)
@@ -370,20 +360,25 @@ elif page_mode == "📊 Dashboard":
 
             st.divider()
 
-            # 3. DEBIT BALANCES (Positives Only)
+            # 3. DEBIT BALANCES
             st.markdown("### 3. Top Debit Balances")
             top_debit_local = v_debit.head(10)
             
+            # --- FIX: SADECE SAYISAL KOLONLARA FORMAT UYGULA ---
+            numeric_cols = buckets_order + ['Total Balance']
+
             if not top_debit_local.empty:
-                # Simple View for Debit
                 disp_debit = top_debit_local[['Vendor name', 'Total Balance'] + buckets_order].copy()
-                st.dataframe(disp_debit.style.format("{:,.2f}"), use_container_width=True)
+                st.dataframe(disp_debit.style.format("{:,.2f}", subset=numeric_cols), use_container_width=True)
             else: st.write("No Debit Balances found.")
 
             # 4. PREPAYMENTS
             st.markdown("### 4. Prepayments")
             if not dp_final.empty:
-                st.dataframe(dp_final[['Vendor name', 'Total Balance'] + buckets_order].head(10).style.format("{:,.2f}"), use_container_width=True)
+                st.dataframe(
+                    dp_final[['Vendor name', 'Total Balance'] + buckets_order].head(10).style.format("{:,.2f}", subset=numeric_cols), 
+                    use_container_width=True
+                )
             else: st.success("No Data")
 
             st.markdown("<br>", unsafe_allow_html=True)
