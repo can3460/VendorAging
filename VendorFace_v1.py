@@ -7,16 +7,20 @@ import os
 import time
 import streamlit.components.v1 as components
 
-# --- 1. CONFIGURATION ---
-st.set_page_config(page_title="VendorFace | Enterprise Login", layout="wide")
+# ==========================================
+# 1. CONFIGURATION & SETUP
+# ==========================================
+st.set_page_config(page_title="VendorFace | Smart Finance Suite", layout="wide", page_icon="🛡️")
 USER_DB_FILE = "users.xlsx"
 ADMIN_EMAIL = "can.adiguzel@sanofi.com" 
 
-# --- 2. AUTHENTICATION SYSTEM ---
+# ==========================================
+# 2. AUTHENTICATION SYSTEM
+# ==========================================
 
 def load_user_db():
     if not os.path.exists(USER_DB_FILE):
-        # --- ÖN TANIMLI KULLANICI LİSTESİ ---
+        # İlk çalıştırmada admin kullanıcısını oluşturur
         initial_users = [
             {"Email": ADMIN_EMAIL, "Name": "Can Adiguzel", "Role": "Admin"},
             {"Email": "AyseDeniz.Sen@sanofi.com", "Name": "AyseDeniz Sen", "Role": "User"},
@@ -35,45 +39,26 @@ def load_user_db():
     else:
         return pd.read_excel(USER_DB_FILE)
 
-def add_user_to_db(email, name):
-    df = load_user_db()
-    email = email.lower().strip()
-    if email in df['Email'].values:
-        return False, "User already exists!"
-    new_user = pd.DataFrame({
-        "Email": [email], "Name": [name], "Role": ["User"],
-        "Added_Date": [datetime.now().strftime("%Y-%m-%d")]
-    })
-    df = pd.concat([df, new_user], ignore_index=True)
-    try:
-        df.to_excel(USER_DB_FILE, index=False)
-        return True, "User authorized successfully."
-    except Exception as e:
-        return False, f"Error saving DB: {e}"
-
-# Session State
+# Session State Başlangıcı
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_email' not in st.session_state: st.session_state['user_email'] = ""
 
-# --- LOGIN SCREEN ---
+# --- LOGIN EKRANI ---
 if not st.session_state['logged_in']:
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        if os.path.exists("logo.png"):
-            st.image("logo.png", width=200)
-        else:
-            st.markdown("<h1 style='text-align: center; color:#1e3a8a;'>🛡️ VendorFace</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; color:#1e3a8a;'>🛡️ VendorFace</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center;'>Financial Intelligence Suite</h3>", unsafe_allow_html=True)
         
-        st.markdown("### 👋 Corporate Login")
         st.info("Please enter your company email address to access the dashboard.")
         
         with st.form("login_form"):
-            email_input = st.text_input("Email Address", placeholder="name.surname@company.com").strip().lower()
+            email_input = st.text_input("Email Address", placeholder="name.surname@sanofi.com").strip().lower()
             submit_button = st.form_submit_button("Secure Login", type="primary", use_container_width=True)
 
         if submit_button:
-            # Domain Kontrolü (Global)
+            # Domain Kontrolü
             allowed_domains = ["sanofi.com", "opella.com"]
             is_valid_domain = any(email_input.endswith(dom) for dom in allowed_domains)
             
@@ -91,30 +76,28 @@ if not st.session_state['logged_in']:
                     st.rerun()
                 else:
                     st.warning("⚠️ Access Denied: Your email is not authorized.")
-                    subject = "VendorFace Access Request"
-                    body = f"Hello Admin,%0D%0A%0D%0AI would like to request access to the VendorFace Dashboard.%0D%0A%0D%0AMy Email: {email_input}%0D%0AThank you."
-                    mailto_link = f"mailto:{ADMIN_EMAIL}?subject={subject}&body={body}"
-                    st.markdown(f"""<a href="{mailto_link}" target="_blank" style="text-decoration:none;"><div style="background-color:#fefce8; border:1px solid #facc15; color:#854d0e; padding:10px; border-radius:5px; text-align:center; font-weight:bold;">📩 Click here to Request Access via Outlook</div></a>""", unsafe_allow_html=True)
     st.stop() 
 
 # ==========================================
-# ANA UYGULAMA MİMARİSİ
+# 3. SIDEBAR & NAVIGASYON
 # ==========================================
 
-# --- Sidebar (Navigasyon & User Info) ---
 with st.sidebar:
-    if os.path.exists("logo.png"): st.image("logo.png", use_container_width=True)
     st.markdown(f"👤 **{st.session_state['user_name']}**")
+    st.caption(f"Role: {st.session_state['user_role']}")
+    st.markdown("---")
     
-    # Navigation Mode
-    page_mode = "📊 Dashboard" # Default
+    st.header("📂 Data Import")
+    uploaded_file = st.file_uploader("Upload FBL1N Report (Excel)", type=["xlsx", "xls"])
     
-    # Sadece Admin ise Mod Seçimi Göster
-    if st.session_state['user_email'] == ADMIN_EMAIL.lower() or st.session_state.get('user_role') == 'Admin':
-        st.divider()
-        page_mode = st.radio("Navigate", ["📊 Dashboard", "⚙️ Admin Panel"], label_visibility="collapsed")
+    st.markdown("### ⚙️ Parameters")
+    currency_list = ["EGP", "TRY", "EUR", "USD", "TND", "AED", "SAR", "GBP"]
+    selected_currency = st.selectbox("Local Currency", currency_list, index=0)
     
-    st.divider()
+    default_rate = 52.50 if selected_currency == "EGP" else (35.00 if selected_currency == "TRY" else 1.00)
+    eur_rate = st.number_input(f"EUR / {selected_currency} Rate", value=default_rate, step=0.01)
+    
+    st.markdown("---")
     if st.button("🔒 Logout"):
         st.session_state['logged_in'] = False
         st.rerun()
@@ -123,210 +106,235 @@ with st.sidebar:
 st.markdown("""
     <style>
     .main { background-color: #f8fafc; }
-    h1 { color: #1e3a8a; font-family: 'Segoe UI', sans-serif; font-weight: 800; letter-spacing: -0.5px; }
+    h1 { color: #1e3a8a; font-family: 'Segoe UI', sans-serif; font-weight: 800; }
     h3 { color: #1e40af; border-left: 5px solid #3b82f6; padding-left: 10px; margin-top: 30px; }
-    .footer { text-align: center; color: #94a3b8; font-family: 'Courier New', monospace; font-size: 0.8rem; margin-top: 50px; border-top: 1px solid #e2e8f0; padding-top: 20px; }
-    thead tr th:first-child { display:none }
-    tbody th { display:none }
-    .stTable { width: 100% !important; }
-    .print-btn { background-color: #475569; color: white; border: none; padding: 10px 20px; text-align: center; display: inline-block; font-size: 16px; cursor: pointer; border-radius: 8px; font-weight: bold; width: 100%; }
-    .print-btn:hover { background-color: #334155; transform: scale(1.02); }
-    /* Form Styling */
-    [data-testid="stForm"] { border: 1px solid #e2e8f0; padding: 20px; border-radius: 10px; background-color: white; }
-    @media print { [data-testid="stSidebar"] { display: none; } .stButton { display: none; } .print-hide { display: none; } iframe { display: none; } .footer { position: fixed; bottom: 0; width: 100%; } }
+    .stDataFrame { border: 1px solid #e2e8f0; border-radius: 8px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --------------------------------------------------------
-# SENARYO 1: ADMIN PANEL GÖRÜNÜMÜ
-# --------------------------------------------------------
-if page_mode == "⚙️ Admin Panel":
-    st.title("⚙️ Administration & User Management")
-    st.markdown("Manage authorized users for VendorFace Dashboard.")
+# ==========================================
+# 4. HELPER FUNCTIONS
+# ==========================================
+
+def get_aging_bucket(payment_date, report_date):
+    if pd.isna(payment_date): return "Not Due"
+    days = (report_date - payment_date).days
+    if days < 0: return "Not Due"
+    elif days <= 30: return "1-30 Days"
+    elif days <= 60: return "31-60 Days"
+    elif days <= 90: return "61-90 Days"
+    else: return "90+ Days"
+
+def write_optimized_excel(writer, df, sheet_name):
+    """Excel sheet'lerini otomatik formatlayan yardımcı fonksiyon"""
+    if df.empty: return
+    workbook = writer.book
+    worksheet = workbook.add_worksheet(sheet_name)
+    writer.sheets[sheet_name] = worksheet
     
-    tab1, tab2 = st.tabs(["📂 **User List (Edit / Delete)**", "➕ **Add New User**"])
+    # Formatlar
+    header_fmt = workbook.add_format({'bold': True, 'bg_color': '#1e3a8a', 'font_color': 'white', 'border': 1, 'align': 'center'})
+    num_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+    txt_fmt = workbook.add_format({'border': 1})
     
-    # TAB 1: USER LIST (Main Screen Editor)
-    with tab1:
-        st.info("💡 You can edit names/emails directly in the table below. Select rows and press 'Delete' key to remove users.")
+    # Header Yazdırma
+    for col_num, value in enumerate(df.columns.values):
+        worksheet.write(0, col_num, value, header_fmt)
         
-        current_users_df = load_user_db()
+    # Data Yazdırma
+    for row_idx, row in enumerate(df.itertuples(index=False), start=1):
+        for col_idx, value in enumerate(row):
+            worksheet.write(row_idx, col_idx, value, num_fmt if isinstance(value, (int, float)) else txt_fmt)
+            
+    worksheet.set_column(0, 0, 15) # İlk kolon genişliği
+    worksheet.set_column(1, 1, 35) # İsim kolonu genişliği
+
+# ==========================================
+# 5. MAIN LOGIC & DASHBOARD
+# ==========================================
+
+st.title("📊 Executive BS Review Dashboard")
+
+if uploaded_file:
+    with st.status("🚀 Processing Data & Generating Report...", expanded=True) as status:
+        st.write("📂 1. Reading Excel file...")
+        try:
+            df = pd.read_excel(uploaded_file)
+            
+            # --- DATA CLEANING ---
+            st.write("🧹 2. Cleaning & Transforming...")
+            df['Posting Date'] = pd.to_datetime(df['Posting Date'], errors='coerce')
+            df['Payment date'] = pd.to_datetime(df['Payment date'], errors='coerce')
+            df['Amount'] = pd.to_numeric(df['Amount in local currency'], errors='coerce').fillna(0)
+            df['Supplier'] = df['Supplier'].fillna('N/A').astype(str)
+            df['Vendor name'] = df['Vendor name'].fillna('Unknown')
+            
+            # GL Account Temizliği
+            df['G/L Account'] = df['G/L Account'].apply(lambda x: str(int(float(x))) if str(x).replace('.','',1).isdigit() else str(x))
+            
+            # EUR Hesaplama
+            safe_rate = eur_rate if eur_rate > 0 else 1.0
+            df['Amount_EUR'] = df['Amount'] / safe_rate
+
+            # Aging Bucket
+            report_date = df['Posting Date'].max()
+            df['Aging Bucket'] = df['Payment date'].apply(lambda x: get_aging_bucket(x, report_date))
+            buckets_order = ["Not Due", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
+
+            # --- HAZIRLIK: EXCEL EXPORT DATALARI ---
+            
+            # 1. GL Summary (BS Review)
+            gl_pivot = df.pivot_table(
+                index=['G/L Account'], 
+                columns='Aging Bucket', 
+                values='Amount', 
+                aggfunc='sum', 
+                fill_value=0
+            ).reindex(columns=buckets_order, fill_value=0)
+            gl_pivot['Total Balance'] = gl_pivot.sum(axis=1)
+            
+            # Top Driver Vendor Bulma
+            def get_top_driver(sub_df):
+                if sub_df.empty: return "None"
+                vendor_sums = sub_df.groupby('Vendor name')['Amount'].sum().abs()
+                return vendor_sums.idxmax() if not vendor_sums.empty else "None"
+
+            top_vendors = df.groupby('G/L Account').apply(get_top_driver).reset_index(name='Top Driver Vendor')
+            gl_summary_final = gl_pivot.reset_index().merge(top_vendors, on='G/L Account', how='left')
+            cols = ['G/L Account', 'Top Driver Vendor'] + buckets_order + ['Total Balance']
+            gl_summary_final = gl_summary_final[cols].sort_values(by='Total Balance', key=abs, ascending=False)
+
+            # 2. Vendor Detail (Operasyonel)
+            vendor_pivot = df.pivot_table(
+                index=['Supplier', 'Vendor name'],
+                columns='Aging Bucket',
+                values='Amount',
+                aggfunc='sum',
+                fill_value=0
+            ).reindex(columns=buckets_order, fill_value=0)
+            vendor_pivot['Total Balance'] = vendor_pivot.sum(axis=1)
+            vendor_pivot = vendor_pivot.sort_values(by='Total Balance', ascending=True).reset_index()
+
+            # 3. Debit Balances & Downpayments
+            debit_df = vendor_pivot[vendor_pivot['Total Balance'] > 0]
+            dp_gls = ['16740100', '16740110'] # Örnek GL'ler
+            dp_df = vendor_pivot[vendor_pivot['Supplier'].isin(df[df['G/L Account'].isin(dp_gls)]['Supplier'])]
+
+            # --- EXCEL OLUŞTURMA ---
+            output_excel = io.BytesIO()
+            with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
+                write_optimized_excel(writer, gl_summary_final, 'GL Summary (BS Review)')
+                write_optimized_excel(writer, vendor_pivot, 'AP Vendor Aging')
+                write_optimized_excel(writer, debit_df, 'Debit Balances')
+                write_optimized_excel(writer, dp_df, 'Downpayments')
+            
+            status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
+
+        except Exception as e:
+            st.error(f"Critical Error: {e}")
+            st.stop()
+
+    # =========================================================
+    # DASHBOARD VISUALIZATION
+    # =========================================================
+    
+    st.caption(f"📅 Report Date: {report_date.strftime('%d-%b-%Y')} | 💱 FX Rate: 1 EUR = {safe_rate:,.2f} {selected_currency}")
+    
+    # Helper for 'k' (Thousands) View
+    def create_k_pivot(data, index_col, value_col):
+        piv = data.pivot_table(
+            index=index_col, columns='Aging Bucket', values=value_col, aggfunc='sum', fill_value=0
+        ).reindex(columns=buckets_order, fill_value=0)
+        piv['Total Balance'] = piv.sum(axis=1)
+        return (piv / 1000).sort_values(by='Total Balance', key=abs, ascending=False)
+
+    # --- SECTION 1: GL ACCOUNT AGING ---
+    st.markdown("### 1. GL Account Aging Summary")
+    
+    col_gl1, col_gl2 = st.columns(2)
+    with col_gl1:
+        st.info(f"**Local Currency (k{selected_currency})**")
+        gl_k_local = create_k_pivot(df, 'G/L Account', 'Amount')
+        st.dataframe(gl_k_local.style.format("{:,.0f}"), use_container_width=True)
+    
+    with col_gl2:
+        st.warning(f"**Group Currency (kEUR)**")
+        gl_k_eur = create_k_pivot(df, 'G/L Account', 'Amount_EUR')
+        st.dataframe(gl_k_eur.style.format("{:,.0f}"), use_container_width=True)
         
-        # Geniş Data Editor
-        edited_users_df = st.data_editor(
-            current_users_df,
-            num_rows="dynamic",
-            use_container_width=True,
-            height=400,
-            key="user_editor_main"
+    st.divider()
+
+    # --- SECTION 2: TOP 10 VENDORS ---
+    st.markdown("### 2. Top 10 High Value Vendors")
+    
+    # Identify Top 10 by Absolute Value
+    top10_names = df.groupby('Vendor name')['Amount'].sum().abs().sort_values(ascending=False).head(10).index.tolist()
+    df_top10 = df[df['Vendor name'].isin(top10_names)]
+    
+    col_v1, col_v2 = st.columns(2)
+    with col_v1:
+        st.info(f"**Top 10 Vendors (k{selected_currency})**")
+        v_k_local = create_k_pivot(df_top10, 'Vendor name', 'Amount')
+        st.dataframe(v_k_local.style.format("{:,.0f}"), use_container_width=True)
+        
+    with col_v2:
+        st.warning("**Top 10 Vendors (kEUR)**")
+        v_k_eur = create_k_pivot(df_top10, 'Vendor name', 'Amount_EUR')
+        st.dataframe(v_k_eur.style.format("{:,.0f}"), use_container_width=True)
+        
+    st.divider()
+
+    # --- SECTION 3: DEBIT BALANCES ---
+    st.markdown("### 3. Top 10 Debit Balances (Advances/Returns)")
+    
+    # Logic: Sum > 0
+    vendor_sums = df.groupby('Vendor name')[['Amount', 'Amount_EUR']].sum()
+    debit_vendors = vendor_sums[vendor_sums['Amount'] > 0].sort_values(by='Amount', ascending=False).head(10)
+    
+    if not debit_vendors.empty:
+        df_debit_top = df[df['Vendor name'].isin(debit_vendors.index)]
+        
+        # Pivot by Aging
+        debit_pivot = df_debit_top.pivot_table(
+            index='Vendor name', columns='Aging Bucket', values='Amount', aggfunc='sum', fill_value=0
+        ).reindex(columns=buckets_order, fill_value=0)
+        
+        # Add Totals Columns
+        debit_pivot = debit_pivot / 1000 # Convert buckets to 'k'
+        debit_pivot[f'Total k{selected_currency}'] = debit_vendors['Amount'] / 1000
+        debit_pivot['Total kEUR'] = debit_vendors['Amount_EUR'] / 1000
+        
+        # Reorder
+        final_cols = buckets_order + [f'Total k{selected_currency}', 'Total kEUR']
+        debit_pivot = debit_pivot[final_cols].sort_values(by=f'Total k{selected_currency}', ascending=False)
+        
+        st.dataframe(
+            debit_pivot.style.format("{:,.1f}").background_gradient(cmap="Greens", subset=[f'Total k{selected_currency}']),
+            use_container_width=True
         )
-        
-        col_save, col_dummy = st.columns([1, 4])
-        with col_save:
-            if st.button("💾 Save Changes", type="primary", use_container_width=True):
-                try:
-                    edited_users_df.to_excel(USER_DB_FILE, index=False)
-                    st.toast("✅ User list updated successfully!", icon="🎉")
-                    time.sleep(1)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error saving changes: {e}")
-
-    # TAB 2: ADD USER FORM (Proper Form)
-    with tab2:
-        col_form1, col_form2 = st.columns([1, 1])
-        with col_form1:
-            st.markdown("### Authorize New Colleague")
-            with st.form("add_user_main_form"):
-                new_u_email = st.text_input("New User Email", placeholder="name.surname@sanofi.com").strip().lower()
-                new_u_name = st.text_input("New User Name", placeholder="e.g. John Doe").strip()
-                
-                submitted = st.form_submit_button("Add User to System", type="primary")
-                
-                if submitted:
-                    if new_u_email and new_u_name:
-                        success, msg = add_user_to_db(new_u_email, new_u_name)
-                        if success: 
-                            st.success(f"✅ {new_u_name} has been authorized!")
-                            time.sleep(1.5)
-                            st.rerun()
-                        else: 
-                            st.error(msg)
-                    else:
-                        st.error("Please fill both email and name fields.")
-
-# --------------------------------------------------------
-# SENARYO 2: DASHBOARD GÖRÜNÜMÜ (Standart Akış)
-# --------------------------------------------------------
-elif page_mode == "📊 Dashboard":
-    
-    # -- Dashboard Sidebar Controls (Sadece Dashboard Modunda Görünür) --
-    with st.sidebar:
-        st.header("Global Settings")
-        currency_list = [
-            "EGP", "TRY", "TND", "USD", "EUR", "GBP", "AED", "SAR", "INR", "CNY", 
-            "JPY", "CAD", "AUD", "CHF", "RUB", "BRL", "MXN", "ZAR", "NGN", "KES", 
-            "GHS", "MAD", "DZD", "PKR", "IDR", "MYR", "PHP", "THB", "VND", "KRW", 
-            "PLN", "HUF", "CZK", "RON"
-        ]
-        selected_currency = st.selectbox("Select Local Currency", currency_list, index=0)
-        default_rate = 52.50 if selected_currency == "EGP" else (35.00 if selected_currency == "TRY" else 1.00)
-        eur_rate = st.number_input(f"EUR / {selected_currency} Rate", value=default_rate, step=0.01)
-        uploaded_file = st.file_uploader("Upload SAP FBL1N Report", type=["xlsx", "xls"])
-
-    # -- Main Dashboard Logic --
-    col_h1, col_h2 = st.columns([3, 1])
-    with col_h1:
-        st.title("Account Payable Aging Analysis")
-        st.caption(f"Financial Intelligence Dashboard | Welcome, {st.session_state['user_name']}")
-
-    # Excel Writer Function
-    def write_optimized_excel(writer, df, sheet_name):
-        workbook = writer.book
-        worksheet = workbook.add_worksheet(sheet_name)
-        writer.sheets[sheet_name] = worksheet
-        header_fmt = workbook.add_format({'bold': True, 'bg_color': '#1e3a8a', 'font_color': 'white', 'border': 1, 'align': 'center'})
-        str_fmt = workbook.add_format({'border': 1, 'align': 'left'})
-        num_fmt = workbook.add_format({'border': 1, 'num_format': '#,##0.00', 'align': 'right'})
-        for col_num, value in enumerate(df.columns.values): worksheet.write(0, col_num, value, header_fmt)
-        for row_idx, row in enumerate(df.itertuples(index=False), start=1):
-            for col_idx, value in enumerate(row):
-                worksheet.write(row_idx, col_idx, value, str_fmt if col_idx < 2 else num_fmt)
-        worksheet.set_column('A:A', 15)
-        worksheet.set_column('B:B', 45)
-        worksheet.set_column('C:H', 18)
-
-    if uploaded_file:
-        with st.status("🚀 Generating Report... Please wait.", expanded=True) as status:
-            st.write("📂 1. Reading file...")
-            progress_bar = st.progress(0)
-            try:
-                df = pd.read_excel(uploaded_file)
-                progress_bar.progress(25)
-                
-                st.write("🧹 2. Cleaning data...")
-                df['Posting Date'] = pd.to_datetime(df['Posting Date'], errors='coerce')
-                df['Payment date'] = pd.to_datetime(df['Payment date'], errors='coerce')
-                df['Amount'] = pd.to_numeric(df['Amount in local currency'], errors='coerce').fillna(0)
-                df['Supplier'] = df['Supplier'].fillna('N/A')
-                df['Vendor name'] = df['Vendor name'].fillna('Unknown')
-                df['G/L Account'] = df['G/L Account'].apply(lambda x: str(int(float(x))) if not pd.isna(x) and str(x).replace('.','').isdigit() else str(x))
-                progress_bar.progress(50)
-                
-                st.write("🧮 3. Calculating Aging...")
-                report_date = df['Posting Date'].max()
-                buckets = ["Not Due", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
-                
-                def get_bucket(pay_date):
-                    if pd.isna(pay_date): return "Not Due"
-                    days = (report_date - pay_date).days
-                    if days < 0: return "Not Due"
-                    elif days <= 30: return "1-30 Days"
-                    elif days <= 60: return "31-60 Days"
-                    elif days <= 90: return "61-90 Days"
-                    else: return "90+ Days"
-                
-                df['Aging Bucket'] = df['Payment date'].apply(get_bucket)
-                progress_bar.progress(75)
-                
-                st.write("📊 4. Creating tables...")
-                def create_pivot(d):
-                    if d.empty: return pd.DataFrame()
-                    p = d.pivot_table(index=['Supplier', 'Vendor name'], columns='Aging Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
-                    p['Total Balance'] = p.sum(axis=1)
-                    return p.sort_values(by='Total Balance', ascending=True).reset_index()
-
-                ap_pivot = create_pivot(df[df['G/L Account'].isin(['16740100', '31210100'])])
-                dp_pivot = create_pivot(df[df['G/L Account'] == '16740100'])
-                p_only = df[df['G/L Account'] == '31210100']
-                db_pivot = pd.DataFrame()
-                if not p_only.empty:
-                    temp = create_pivot(p_only)
-                    db_pivot = temp[temp['Total Balance'] > 0]
-                
-                progress_bar.progress(90)
-                output_excel = io.BytesIO()
-                with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
-                    write_optimized_excel(writer, ap_pivot, 'AP Aging')
-                    write_optimized_excel(writer, dp_pivot, 'Downpayments')
-                    write_optimized_excel(writer, db_pivot, 'Debit Balances')
-                
-                progress_bar.progress(100)
-                status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
-                
-            except Exception as e:
-                st.error(f"Error: {e}")
-                st.stop()
-
-        with col_h2:
-            st.download_button("📥 Download Excel Report", output_excel.getvalue(), f"AP_Report_{datetime.now().strftime('%d%m%Y')}.xlsx")
-            components.html(f"""<button onclick="window.print()" class="print-btn">🖨️ Save as PDF</button>""", height=50)
-
-        def display_narrow_table(pivot_df, title):
-            c1, c2, c3 = st.columns([1, 6, 1]) 
-            with c2:
-                st.markdown(f"### {title}")
-                if pivot_df.empty:
-                    st.warning("No data found.")
-                    return
-                
-                total_cols = pivot_df[buckets].sum()
-                grand_total = pivot_df['Total Balance'].sum()
-                summ_data = {
-                    "Unit": [f"k{selected_currency}", "kEUR"], 
-                    "Total": [round(grand_total/1000), round((grand_total/eur_rate)/1000)]
-                }
-                for b in buckets:
-                    val = total_cols[b]
-                    summ_data[b] = [round(val/1000), round((val/eur_rate)/1000)]
-                
-                st.table(pd.DataFrame(summ_data).style.format(precision=0, thousands=",").set_properties(**{'text-align': 'center'}).set_properties(subset=['Total'], **{'font-weight': 'bold', 'background-color': '#f1f5f9'}).set_table_styles([{'selector': 'th', 'props': [('background-color', '#e2e8f0'), ('color', '#1e3a8a')]}]))
-
-        st.divider()
-        display_narrow_table(ap_pivot, "1. Total AP Aging Summary")
-        display_narrow_table(dp_pivot, "2. Prepayments (DP) Summary")
-        display_narrow_table(db_pivot, "3. Debit Balances Summary")
-        
-        st.markdown(f"""<div class="footer">© {datetime.now().year} | <b>Account Payable Intelligence Suite</b><br>Developed by <b>Can Adiguzel</b></div>""", unsafe_allow_html=True)
     else:
-        st.info("👋 Welcome! Please select your currency and upload your FBL1N Excel file to start.")
+        st.success("No significant Debit Balances found.")
+
+    # --- DOWNLOAD BUTTON ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.download_button(
+        label="📥 Download Full Analysis Report (Excel)",
+        data=output_excel.getvalue(),
+        file_name=f"AP_Dashboard_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="primary",
+        use_container_width=True
+    )
+
+else:
+    # Empty State
+    col_c1, col_c2 = st.columns([1, 2])
+    with col_c1:
+        st.info("👈 **Start Here**\nPlease upload your FBL1N Excel file from the sidebar.")
+    with col_c2:
+        st.markdown("### Ready for Analysis")
+        st.markdown("""
+        - **GL Review:** Automatic Balance Sheet aging per account.
+        - **Currency:** Dual view (Local & EUR).
+        - **Risk:** Identify 90+ days items instantly.
+        """)
