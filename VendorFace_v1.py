@@ -13,14 +13,41 @@ except ImportError:
     YFINANCE_AVAILABLE = False
 
 # ==========================================
-# 1. CONFIGURATION & SETUP
+# 1. CONFIGURATION & ADMIN SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella Finance", layout="wide", page_icon="🛡️")
-VERSION_NO = "v31.5" 
+VERSION_NO = "v32.0"
+ADMIN_EMAIL = "can.adiguzel@sanofi.com" # Senin mailin
+USER_DB = "users.xlsx"
 
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'view_currency' not in st.session_state: st.session_state['view_currency'] = "Local"
 if 'results' not in st.session_state: st.session_state['results'] = None
+
+# Kullanıcı Veritabanı Fonksiyonları
+def load_users():
+    if not os.path.exists(USER_DB):
+        df = pd.DataFrame([{"email": ADMIN_EMAIL, "role": "admin"}])
+        df.to_excel(USER_DB, index=False)
+        return df
+    return pd.read_excel(USER_DB)
+
+def add_user(new_email):
+    users = load_users()
+    if new_email not in users['email'].values:
+        new_row = pd.DataFrame([{"email": new_email, "role": "user"}])
+        users = pd.concat([users, new_row], ignore_index=True)
+        users.to_excel(USER_DB, index=False)
+        return True
+    return False
+
+def remove_user(email_to_remove):
+    users = load_users()
+    if email_to_remove != ADMIN_EMAIL:
+        users = users[users['email'] != email_to_remove]
+        users.to_excel(USER_DB, index=False)
+        return True
+    return False
 
 # ==========================================
 # 2. DATA ENGINE (v26.1 STABLE ENGINE)
@@ -55,7 +82,7 @@ def smart_parse_tb(file):
 
 def generate_html_report(dfs, titles, display_curr, rate):
     html = f"<html><head><style>body{{font-family:sans-serif;padding:20px;}}h2{{color:#1e40af;border-bottom:2px solid #5b21b6;}}table{{border-collapse:collapse;width:100%;margin-bottom:20px;font-size:11px;}}th{{background:#f1f5f9;padding:8px;border:1px solid #cbd5e1;}}td{{padding:6px;border:1px solid #cbd5e1;text-align:right;}}td:first-child{{text-align:left;font-weight:bold;}}</style></head><body>"
-    html += f"<h1>AP Analyzing Suite Audit Report ({display_curr})</h1><p>Date: {datetime.now().strftime('%Y-%m-%d %H:%M')} | FX Rate: {rate:,.4f}</p>"
+    html += f"<h1>AP Analyzing Suite Report ({display_curr})</h1><p>Date: {datetime.now().strftime('%Y-%m-%d %H:%M')} | FX Rate: {rate:,.4f}</p>"
     for df, title in zip(dfs, titles):
         if df is not None and not df.empty:
             html += f"<h3>{title}</h3>"
@@ -81,15 +108,38 @@ if not st.session_state['logged_in']:
             email_input = st.text_input("Corporate Email Address").strip().lower()
             submit_button = st.form_submit_button("Secure Login", type="primary", use_container_width=True)
         if submit_button and email_input:
-            st.session_state.update({'logged_in': True, 'user_name': email_input.split('@')[0].replace('.',' ').title(), 'user_email': email_input})
-            st.rerun()
+            users = load_users()
+            if email_input in users['email'].values:
+                st.session_state.update({'logged_in': True, 'user_name': email_input.split('@')[0].replace('.',' ').title(), 'user_email': email_input})
+                st.rerun()
+            else:
+                st.error("Access Denied. Please contact Can Adiguzel for access.")
         st.markdown("<p style='text-align: center; color:#94a3b8; font-size:12px;'>Developed by <b>Can Adiguzel</b><br>Sanofi | Opella Finance Operations</p>", unsafe_allow_html=True)
     st.stop()
 
+# ==========================================
+# 4. SIDEBAR & ADMIN PANEL
+# ==========================================
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", use_container_width=True)
     st.markdown(f"👤 **{st.session_state['user_name']}**")
     st.divider()
+    
+    # ADMIN SECTION (Only for Can)
+    if st.session_state['user_email'] == ADMIN_EMAIL:
+        with st.expander("🛠️ Admin Control"):
+            new_u = st.text_input("Add User Email", key="new_u_email")
+            if st.button("Add User", use_container_width=True):
+                if add_user(new_u): st.success(f"Added: {new_u}")
+                else: st.warning("Already exists")
+            
+            st.write("---")
+            all_users = load_users()
+            user_to_del = st.selectbox("Remove User", all_users[all_users['email'] != ADMIN_EMAIL]['email'].values)
+            if st.button("Delete Selected User", use_container_width=True):
+                if remove_user(user_to_del): st.success(f"Removed: {user_to_del}"); st.rerun()
+        st.divider()
+
     uploaded_file = st.file_uploader("1. FBL1N Report (Required)", type=["xlsx", "xls"])
     tb_file = st.file_uploader("2. Trial Balance F.01 (Optional)", type=["xlsx", "xls"])
     currency = st.selectbox("Base Currency", ["EGP", "TRY", "USD", "TND"], index=1)
@@ -100,6 +150,9 @@ with st.sidebar:
     eur_rate = st.number_input(f"EUR/{currency}", value=st.session_state['cur_val'], format="%.4f")
     if st.button("🔒 Logout"): st.session_state['logged_in'] = False; st.rerun()
 
+# ==========================================
+# 5. DASHBOARD ENGINE
+# ==========================================
 st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0; color:#1e3a8a;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0;">HFO Operational Audit Dashboard</p></div><div style="text-align: right; color: #94a3b8; font-size: 11px;">Developed by <b>Can Adiguzel</b><br>{VERSION_NO} | Gemini AI</div></div>""", unsafe_allow_html=True)
 
 col_t1, col_t2 = st.columns([8, 2])
@@ -114,7 +167,7 @@ scalar = 1000 if st.session_state['view_currency'] == "Local" else (1000 * eur_r
 
 if uploaded_file:
     if st.button("🚀 Run Audit Analysis", type="primary", use_container_width=True):
-        with st.status("🔄 Harmonizing Data..."):
+        with st.status("🔄 Processing..."):
             df_raw = pd.read_excel(uploaded_file)
             df = df_raw.dropna(subset=['Document Number']) if 'Document Number' in df_raw.columns else df_raw
             df['Amount'] = pd.to_numeric(df['Amount in local currency'], errors='coerce').fillna(0)
@@ -124,31 +177,26 @@ if uploaded_file:
             buckets = ["Not Due", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
             df['Bucket'] = pd.to_datetime(df['Payment date']).apply(lambda x: "Not Due" if pd.isna(x) or (report_date - x).days < 0 else ("1-30 Days" if (report_date - x).days <= 30 else ("31-60 Days" if (report_date - x).days <= 60 else ("61-90 Days" if (report_date - x).days <= 90 else "90+ Days"))))
             
-            # Full Dataset Aggregation
+            # Data Aggregation
             v_full_raw = df.pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
             v_full_raw['Total Balance'] = v_full_raw.sum(axis=1)
-            
-            # Dashboard Views (Top 20)
             v_ap_dash = v_full_raw[v_full_raw['Total Balance'] < 0].sort_values('Total Balance').head(20).reset_index()
             v_db_dash = v_full_raw[v_full_raw['Total Balance'] > 0].sort_values('Total Balance', ascending=False).head(20).reset_index()
             
-            # GL Integration
             gl_pivot = df.pivot_table(index='GL', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
             gl_pivot['Total Balance'] = gl_pivot.sum(axis=1)
             name_map, solar_map, tb_bal_map = smart_parse_tb(tb_file) if tb_file else ({}, {}, {})
             drivers = df.groupby('GL').apply(lambda x: x.groupby('Vendor')['Amount'].sum().abs().idxmax() if not x.empty else "-").to_dict()
+            
             gl_final = gl_pivot.reset_index()
             gl_final['GL Name'] = gl_final['GL'].map(name_map).fillna("-")
             gl_final['SOLAR Code'] = gl_final['GL'].map(solar_map).fillna("-")
             gl_final['Main Driver'] = gl_final['GL'].map(drivers).fillna("-")
             gl_final = gl_final[['GL', 'GL Name', 'SOLAR Code', 'Main Driver'] + buckets + ['Total Balance']].sort_values('Total Balance', key=abs, ascending=False)
 
-            # Prepayments (Full)
             dp_gls = ['16740100', '16740110', '16740000']
             v_dp_full = df[df['GL'].isin(dp_gls)].pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
-            if not v_dp_full.empty:
-                v_dp_full['Total Balance'] = v_dp_full.sum(axis=1)
-                v_dp_full = v_dp_full.sort_values('Total Balance', ascending=False).reset_index()
+            if not v_dp_full.empty: v_dp_full['Total Balance'] = v_dp_full.sum(axis=1); v_dp_full = v_dp_full.sort_values('Total Balance', ascending=False).reset_index()
 
             rec_list, gap_list = [], []
             if tb_file:
@@ -159,15 +207,7 @@ if uploaded_file:
                     if str(s_c).strip() == '40000' and gl not in gl_pivot.index:
                         gap_list.append({"GL": gl, "GL Name": name_map.get(gl, "-"), "SOLAR Code": "40000", "TB Balance": tb_bal_map.get(gl, 0)})
             
-            st.session_state['results'] = {
-                'gl_final': gl_final, 
-                'v_ap_dash': v_ap_dash, 'v_db_dash': v_db_dash,
-                'v_full_aging': v_full_raw.reset_index(),
-                'v_dp_full': v_dp_full if not v_dp_full.empty else pd.DataFrame(),
-                'rec_df': pd.DataFrame(rec_list) if rec_list else pd.DataFrame(),
-                'gap_df': pd.DataFrame(gap_list) if gap_list else pd.DataFrame(),
-                'buckets': buckets, 'raw_data': df
-            }
+            st.session_state['results'] = {'gl_final': gl_final, 'v_ap_dash': v_ap_dash, 'v_db_dash': v_db_dash, 'v_full_aging': v_full_raw.reset_index(), 'v_dp_full': v_dp_full if not v_dp_full.empty else pd.DataFrame(), 'rec_df': pd.DataFrame(rec_list) if rec_list else pd.DataFrame(), 'gap_df': pd.DataFrame(gap_list) if gap_list else pd.DataFrame(), 'buckets': buckets, 'raw_data': df}
 
 if st.session_state['results']:
     res = st.session_state['results']
@@ -175,8 +215,7 @@ if st.session_state['results']:
         if df_in is None or df_in.empty: return pd.DataFrame()
         df_out = df_in.copy()
         for c in cols:
-            if c in df_out.columns:
-                df_out[c] = (pd.to_numeric(df_out[c], errors='coerce').fillna(0) / scalar).round(0).astype(int)
+            if c in df_out.columns: df_out[c] = (pd.to_numeric(df_out[c], errors='coerce').fillna(0) / scalar).round(0).astype(int)
         return df_out
 
     gl_disp = scale_clean_int(res['gl_final'], res['buckets'] + ['Total Balance'])
@@ -194,14 +233,12 @@ if st.session_state['results']:
     with col_e2:
         output_dash = io.BytesIO()
         with pd.ExcelWriter(output_dash, engine='xlsxwriter') as writer:
-            gl_disp.to_excel(writer, sheet_name='GL Aging Summary', index=False)
-            ap_disp.to_excel(writer, sheet_name='Top Payables', index=False)
-            db_disp.to_excel(writer, sheet_name='Top Debit Balances', index=False)
+            gl_disp.to_excel(writer, sheet_name='GL Aging Summary', index=False); ap_disp.to_excel(writer, sheet_name='Top Payables', index=False); db_disp.to_excel(writer, sheet_name='Top Debit Balances', index=False)
             if not rec_disp.empty: rec_disp.to_excel(writer, sheet_name='Reconciliation', index=False)
             if not gap_disp.empty: gap_disp.to_excel(writer, sheet_name='TB Check', index=False)
         st.download_button("📥 Export Dashboard to Excel", output_dash.getvalue(), f"Summary_{display_unit}.xlsx", use_container_width=True)
 
-    # --- TABLES (SAFE RENDER) ---
+    # --- TABLES ---
     if not rec_disp.empty:
         st.markdown(f"### 0. Reconciliation: FBL1n vs TB ({display_unit})")
         st.dataframe(rec_disp, column_config={c: st.column_config.NumberColumn(format="%d") for c in ['TB_Balance', 'FBL1n_Sum', 'Difference']}, use_container_width=True)
@@ -221,24 +258,12 @@ if st.session_state['results']:
         st.divider(); st.markdown(f"### 🛡️ TB Check : Other Payables (Not Reported in FBL1n) ({display_unit})")
         st.dataframe(gap_disp, column_config={"TB Balance": st.column_config.NumberColumn(format="%d")}, use_container_width=True)
 
-    # --- FULL DETAILED REPORT ---
-    st.divider()
-    output_full = io.BytesIO()
+    st.divider(); output_full = io.BytesIO()
     with pd.ExcelWriter(output_full, engine='xlsxwriter') as writer:
-        res['gl_final'].to_excel(writer, sheet_name='Full GL Aging', index=False)
-        res['v_full_aging'].to_excel(writer, sheet_name='All Vendors Aging', index=False)
+        res['gl_final'].to_excel(writer, sheet_name='Full GL Aging', index=False); res['v_full_aging'].to_excel(writer, sheet_name='All Vendors Aging', index=False)
         if not res['v_dp_full'].empty: res['v_dp_full'].to_excel(writer, sheet_name='Prepayments Analysis', index=False)
         if not res['rec_df'].empty: res['rec_df'].to_excel(writer, sheet_name='Reconciliation Audit', index=False)
         if not res['gap_df'].empty: res['gap_df'].to_excel(writer, sheet_name='Other Payables Audit', index=False)
         res['raw_data'].head(5000).to_excel(writer, sheet_name='Raw Data Sample', index=False)
-
-    st.download_button(
-        label=f"📥 Download Detailed Audit Report (Full Dataset)",
-        data=output_full.getvalue(),
-        file_name=f"Full_Audit_Pack_{datetime.now().strftime('%Y%m%d')}.xlsx",
-        use_container_width=True, type="primary"
-    )
-
-    st.markdown(f"""<div style="position:fixed;bottom:0;left:0;width:100%;background:#f8fafc;text-align:center;padding:5px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;z-index:1000;">AP Analyzing Suite | Dev by Can Adiguzel | Opella Finance</div>""", unsafe_allow_html=True)
-else:
-    st.info("👋 Welcome! Please upload FBL1N and F.01 (Mizan) reports and click 'Run Audit Analysis'.")
+    st.download_button("📥 Download Detailed Audit Report (Full Dataset)", output_full.getvalue(), f"Full_Audit_Pack_{datetime.now().strftime('%Y%m%d')}.xlsx", use_container_width=True, type="primary")
+    st.markdown(f"""<div style="position:fixed;bottom:0;left:0;width:100%;background:#f8fafc;text-align:center;padding:5px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;z-index:1000;">AP Analyzing Suite | Dev by Can Adiguzel | Opella Finance Operations</div>""", unsafe_allow_html=True)
