@@ -12,17 +12,25 @@ try:
 except ImportError:
     YFINANCE_AVAILABLE = False
 
+# Sunum için Plotly kütüphanesi (Görsel Grafik İçin)
+try:
+    import plotly.express as px
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+
 # ==========================================
 # 1. MASTER CONFIGURATION & ADMIN SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella Finance", layout="wide", page_icon="🛡️")
-VERSION_NO = "v31.6"
+VERSION_NO = "v32.0 (Live Demo)"
 MASTER_ADMIN = "can.adiguzel@sanofi.com"
 USER_DB = "users.xlsx"
 
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'view_currency' not in st.session_state: st.session_state['view_currency'] = "Local"
 if 'results' not in st.session_state: st.session_state['results'] = None
+if 'cur_val' not in st.session_state: st.session_state['cur_val'] = 52.50  # Default Fallback
 
 # --- USER DATABASE FUNCTIONS ---
 def load_users():
@@ -53,7 +61,7 @@ def remove_user(email_to_remove):
     return False
 
 # ==========================================
-# 2. CORE ENGINE (v26.1 STABLE ENGINE)
+# 2. CORE ENGINE (v26.1 STABLE ENGINE - UNTOUCHED)
 # ==========================================
 
 def get_live_rate(base_currency):
@@ -69,7 +77,6 @@ def smart_parse_tb(file):
         df_tb = pd.read_excel(file)
         gl_name_map, gl_solar_map, gl_balance_map = {}, {}, {}
         
-        # v26.1 Core Logic: Account Number & Text for B/S P&L item focus
         acc_col = next((c for c in df_tb.columns if 'Account Number' in str(c)), None)
         name_col = next((c for c in df_tb.columns if 'Text for B/S P&L item' in str(c)), None)
         solar_col = next((c for c in df_tb.columns if any(x in str(c).lower() for x in ['financial', 'fs item', 'solar'])), None)
@@ -101,7 +108,7 @@ def generate_html_report(dfs, titles, display_curr, rate):
     return html
 
 # ==========================================
-# 3. UI & LOGIN SYSTEM
+# 3. UI & LOGIN SYSTEM (UPDATED: REQUEST ACCESS)
 # ==========================================
 if not st.session_state['logged_in']:
     st.markdown(f"""<div style="position: fixed; top: 15px; right: 20px; background: #e0e7ff; color: #3730a3; padding: 5px 15px; border-radius: 20px; font-size: 13px; font-weight: bold; border: 1px solid #c7d2fe; z-index: 9999;">{VERSION_NO}</div>""", unsafe_allow_html=True)
@@ -111,6 +118,7 @@ if not st.session_state['logged_in']:
         if os.path.exists("logo.png"): st.image("logo.png", width=220)
         else: st.markdown("<h1 style='text-align: center; color:#1e3a8a;'>Opella</h1>", unsafe_allow_html=True)
         st.markdown("<h2 style='text-align: center;'>AP Analyzing Suite</h2>", unsafe_allow_html=True)
+        
         with st.form("login_form"):
             email_input = st.text_input("Corporate Email").strip().lower()
             if st.form_submit_button("Secure Login", use_container_width=True):
@@ -118,7 +126,24 @@ if not st.session_state['logged_in']:
                 if 'email' in users.columns and email_input in users['email'].values:
                     st.session_state.update({'logged_in': True, 'user_name': email_input.split('@')[0].replace('.',' ').title(), 'user_email': email_input})
                     st.rerun()
-                else: st.error("Unauthorized access. Contact Can Adiguzel.")
+                else:
+                    # --- RESTORED FEATURE: REQUEST ACCESS BUTTON ---
+                    st.error("Access Denied.")
+                    if "@" in email_input:
+                        subject = f"Access Request: AP Suite ({email_input})"
+                        body = f"Hello Admin,%0D%0A%0D%0AI would like to request access to the AP Analyzing Suite.%0D%0AUser: {email_input}%0D%0A%0D%0AThank you."
+                        mailto_link = f"mailto:{MASTER_ADMIN}?subject={subject}&body={body}"
+                        
+                        st.markdown(f"""
+                        <a href="{mailto_link}" target="_blank" style="text-decoration: none;">
+                            <div style="background-color: #f1f5f9; color: #334155; padding: 10px; border-radius: 5px; text-align: center; border: 1px solid #cbd5e1; font-weight: bold; margin-top: 10px;">
+                                📤 Request Access via Outlook
+                            </div>
+                        </a>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.warning("Please enter a valid email to request access.")
+
         st.markdown("<p style='text-align: center; color:#94a3b8; font-size:12px;'>Developed by <b>Can Adiguzel</b></p>", unsafe_allow_html=True)
     st.stop()
 
@@ -142,7 +167,6 @@ with st.sidebar:
         tb_file = st.file_uploader("2. Trial Balance F.01 (Optional)", type=["xlsx", "xls"])
         currency = st.selectbox("Base Currency", ["EGP", "TRY", "USD", "TND"], index=1)
         
-        # ONLINE FX RATE BUTTON (RE-ADDED)
         if st.button("🌐 Sync Online EUR Rate"):
             live = get_live_rate(currency)
             if live: 
@@ -199,7 +223,7 @@ elif page == "🏠 Analysis Home":
                 df['Vendor'] = df['Vendor name'].fillna(df['Supplier'].astype(str))
                 report_date = pd.to_datetime(df['Posting Date']).max()
                 buckets = ["Not Due", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
-                df['Bucket'] = pd.to_datetime(df['Payment date']).apply(lambda x: "Not Due" if pd.isna(x) or (report_date - x).days < 0 else ("1-30 Days" if (report_date - x).days <= 30 else ("31-60 Days" if (report_date - x).days <= 60 else ("1-30 Days" if (report_date - x).days <= 90 else "90+ Days")))) # Fix
+                df['Bucket'] = pd.to_datetime(df['Payment date']).apply(lambda x: "Not Due" if pd.isna(x) or (report_date - x).days < 0 else ("1-30 Days" if (report_date - x).days <= 30 else ("31-60 Days" if (report_date - x).days <= 60 else ("1-30 Days" if (report_date - x).days <= 90 else "90+ Days"))))
 
                 v_full_raw = df.pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
                 v_full_raw['Total Balance'] = v_full_raw.sum(axis=1)
@@ -233,7 +257,8 @@ elif page == "🏠 Analysis Home":
                             gap_list.append({"GL": gl, "GL Name": name_map.get(gl, "-"), "SOLAR Code": "40000", "TB Balance": tb_bal_map.get(gl, 0)})
                 
                 st.session_state['results'] = {'gl_final': gl_final, 'v_ap_dash': v_ap_dash, 'v_db_dash': v_db_dash, 'v_full_aging': v_full_raw.reset_index(), 'v_dp_full': v_dp_full if not v_dp_full.empty else pd.DataFrame(), 'rec_df': pd.DataFrame(rec_list) if rec_list else pd.DataFrame(), 'gap_df': pd.DataFrame(gap_list) if gap_list else pd.DataFrame(), 'buckets': buckets, 'raw_data': df}
-
+    
+    # --- DISPLAY LOGIC START ---
     if st.session_state['results']:
         res = st.session_state['results']
         def scale_clean(df_in, cols):
@@ -243,10 +268,40 @@ elif page == "🏠 Analysis Home":
                 if c in df_out.columns: df_out[c] = (pd.to_numeric(df_out[c], errors='coerce').fillna(0) / scalar).round(0).astype(int)
             return df_out
 
-        gl_disp, ap_disp, db_disp = scale_clean(res['gl_final'], res['buckets'] + ['Total Balance']), scale_clean(res['v_ap_dash'], res['buckets'] + ['Total Balance']), scale_clean(res['v_db_dash'], res['buckets'] + ['Total Balance'])
-        rec_disp, gap_disp = scale_clean(res['rec_df'], ['TB_Balance', 'FBL1n_Sum', 'Difference']), scale_clean(res['gap_df'], ['TB Balance'])
+        # Data Prep
+        gl_disp = scale_clean(res['gl_final'], res['buckets'] + ['Total Balance'])
+        ap_disp = scale_clean(res['v_ap_dash'], res['buckets'] + ['Total Balance'])
+        db_disp = scale_clean(res['v_db_dash'], res['buckets'] + ['Total Balance'])
+        rec_disp = scale_clean(res['rec_df'], ['TB_Balance', 'FBL1n_Sum', 'Difference'])
+        gap_disp = scale_clean(res['gap_df'], ['TB Balance'])
 
-        # Dashboard Exports
+        # --- NEW SECTION: LIVE KPI METRICS ---
+        st.markdown("### 🎯 Executive Summary")
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        
+        total_exposure = res['gl_final']['Total Balance'].sum() / scalar
+        overdue_val = res['gl_final'][["31-60 Days", "61-90 Days", "90+ Days"]].sum().sum() / scalar
+        vendor_count = len(res['v_full_aging'])
+        
+        kpi1.metric("Net Exposure", f"{total_exposure:,.0f} {display_unit}")
+        kpi2.metric("Critical Overdue (>30D)", f"{overdue_val:,.0f} {display_unit}", delta_color="inverse")
+        kpi3.metric("Active Vendors", vendor_count)
+        kpi4.metric("FX Conversion", f"{eur_rate:.2f}")
+
+        # --- NEW SECTION: PLOTLY CHART ---
+        if PLOTLY_AVAILABLE:
+            st.markdown("---")
+            chart_data = res['gl_final'][res['buckets']].sum().reset_index()
+            chart_data.columns = ['Aging Bucket', 'Amount']
+            chart_data['Amount'] = (chart_data['Amount'] / scalar).abs() # Show absolute for visibility
+            
+            fig = px.bar(chart_data, x='Aging Bucket', y='Amount', color='Aging Bucket', 
+                         title=f"Aging Profile Overview (Absolute {display_unit})", 
+                         text_auto='.2s', template="plotly_white")
+            st.plotly_chart(fig, use_container_width=True)
+
+        # --- EXISTING TABLES ---
+        st.divider()
         col_e1, col_e2 = st.columns(2)
         with col_e1:
             html_out = generate_html_report([rec_disp, gl_disp, ap_disp, db_disp, gap_disp], [f"{t} ({display_unit})" for t in ["0. Reconciliation", "1. GL Aging", "2. Top Payables", "3. Top Debit Balances", "🛡️ TB Check"]], display_unit, eur_rate)
@@ -264,6 +319,18 @@ elif page == "🏠 Analysis Home":
         st.markdown(f"### 1. GL & SOLAR Aging Summary ({display_unit})")
         st.dataframe(gl_disp, column_config={c: st.column_config.NumberColumn(format="%d") for c in res['buckets'] + ['Total Balance']}, use_container_width=True)
 
+        # --- NEW SECTION: INTERACTIVE VENDOR SEARCH ---
+        st.divider()
+        st.markdown(f"### 🔍 Vendor Deep Dive")
+        search_col, disp_col = st.columns([1, 3])
+        with search_col:
+            v_list = res['v_full_aging']['Vendor'].unique()
+            sel_vendor = st.selectbox("Select Vendor to Inspect:", v_list)
+        with disp_col:
+            if sel_vendor:
+                v_data = res['v_full_aging'][res['v_full_aging']['Vendor'] == sel_vendor]
+                st.dataframe(scale_clean(v_data, res['buckets'] + ['Total Balance']), hide_index=True, use_container_width=True)
+
         c1, c2 = st.columns(2)
         with c1:
             st.markdown(f"### 2. Top Payables ({display_unit})")
@@ -275,7 +342,7 @@ elif page == "🏠 Analysis Home":
         if not gap_disp.empty:
             st.divider()
             st.markdown(f"### 🛡️ TB Check : Other Payables ({display_unit})")
-            st.info("Bu hesaplar mizanınızda SOLAR 40000 grubundadır ancak satıcı açık kalemlerinde (FBL1n) bakiye vermeyen kalemlerdir.") # Audit Detail
+            st.info("Bu hesaplar mizanınızda SOLAR 40000 grubundadır ancak satıcı açık kalemlerinde (FBL1n) bakiye vermeyen kalemlerdir.") 
             st.dataframe(gap_disp, column_config={"TB Balance": st.column_config.NumberColumn(format="%d")}, use_container_width=True)
 
         st.divider()
