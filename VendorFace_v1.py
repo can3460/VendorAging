@@ -16,7 +16,7 @@ except ImportError:
 # 1. MASTER CONFIGURATION & ADMIN SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella", layout="wide", page_icon="🛡️")
-VERSION_NO = "v38.0"
+VERSION_NO = "v39.0"
 MASTER_ADMIN = "can.adiguzel@sanofi.com"
 USER_DB = "users.xlsx"
 
@@ -121,7 +121,6 @@ def generate_html_report(dfs, titles, display_curr, rate):
     html += "</body></html>"
     return html
 
-# Excel Formatlama Fonksiyonu - RAM/Sonsuz Çerçeve Optimizasyonu
 def format_excel_sheet(writer, df, sheet_name):
     df = df.fillna("")
     df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -133,16 +132,12 @@ def format_excel_sheet(writer, df, sheet_name):
     num_format = workbook.add_format({'border': 1, 'num_format': '#,##0'})
     total_row_format = workbook.add_format({'bold': True, 'font_color': '#fde68a', 'bg_color': '#064e3b', 'border': 1, 'num_format': '#,##0'})
     
-    # 1. Sadece sütun genişliklerini ayarla (Format uygulamadan)
     for col_num, value in enumerate(df.columns.values):
         worksheet.write(0, col_num, value, header_format)
         column_len = max(df[value].astype(str).map(len).max(), len(str(value))) + 2
-        
         is_numeric = pd.to_numeric(df[value].replace('', np.nan), errors='coerce').notna().any()
-        # Format eklemeden sadece width belirliyoruz (Sonsuz border engellendi)
         worksheet.set_column(col_num, col_num, min(column_len, 25) if is_numeric else min(column_len, 45))
         
-    # 2. Hücreleri teker teker verisiyle yaz ve formatla (RAM Dostu)
     for row_num in range(len(df)):
         is_total_row = ('TOTAL' in df.iloc[row_num].values)
         for col_num in range(len(df.columns)):
@@ -153,7 +148,6 @@ def format_excel_sheet(writer, df, sheet_name):
                 worksheet.write(row_num + 1, col_num, val_to_write, total_row_format)
             else:
                 col_name = df.columns[col_num]
-                # Numeric kolonları kontrol et
                 if pd.to_numeric(df[col_name].replace('', np.nan), errors='coerce').notna().any() and isinstance(val, (int, float)):
                     worksheet.write(row_num + 1, col_num, val_to_write, num_format)
                 else:
@@ -277,7 +271,7 @@ if page == "🛠️ Manage Users":
 # 6. ANALYSIS HOME PAGE (THE CORE)
 # ==========================================
 elif page == "🏠 Analysis Home":
-    st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0; color:#064e3b;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0; font-weight:600;">HFO Strategic Support & Operational Intelligence Dashboard</p></div><div style="text-align: right; color: #94a3b8; font-size: 15px;">Developed by <b>Can Adiguzel</b><br>{VERSION_NO} | {display_unit} View</div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0; color:#064e3b;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0; font-weight:600;">Operational Intelligence Dashboard for HFOs</p></div><div style="text-align: right; color: #94a3b8; font-size: 15px;">Developed by <b>Can Adiguzel</b><br>{VERSION_NO} | {display_unit} View</div></div>""", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top:10px; margin-bottom:20px;'>", unsafe_allow_html=True)
 
     col_t1, col_t2 = st.columns([8, 2])
