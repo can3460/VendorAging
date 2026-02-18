@@ -16,7 +16,7 @@ except ImportError:
 # 1. MASTER CONFIGURATION & ADMIN SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella", layout="wide", page_icon="🛡️")
-VERSION_NO = "v41.0"
+VERSION_NO = "v42.0"
 MASTER_ADMIN = "can.adiguzel@sanofi.com"
 USER_DB = "users.xlsx"
 
@@ -122,7 +122,9 @@ def generate_html_report(dfs, titles, display_curr, rate):
     return html
 
 def format_excel_sheet(writer, df, sheet_name):
-    df = df.fillna("")
+    # NaN ve Infinity değerlerini manuel olarak temizle, hata verdirmesini engelle
+    df = df.replace([np.inf, -np.inf], np.nan).fillna("")
+    
     df.to_excel(writer, sheet_name=sheet_name, index=False)
     workbook = writer.book
     worksheet = writer.sheets[sheet_name]
@@ -153,9 +155,18 @@ def format_excel_sheet(writer, df, sheet_name):
                 else:
                     worksheet.write(row_num + 1, col_num, val_to_write, cell_format)
 
-# Buton Fixi: Durum Değiştirme Fonksiyonu
 def toggle_currency_view():
     st.session_state['view_currency'] = "EUR" if st.session_state['view_currency'] == "Local" else "Local"
+
+def prepare_for_display(df, numeric_cols):
+    """Ekranda temiz göstermek için dataframe'i temizler (Fligranları yok eder)"""
+    df = df.copy()
+    df.columns.name = None
+    df.index.name = None
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = df[col].fillna(0)
+    return df
 
 # ==========================================
 # 3. UI & LOGIN SYSTEM (OPELLA CSS)
@@ -191,8 +202,8 @@ ul[role="listbox"] li { color: #000000 !important; font-weight: bold !important;
 .kpi-value { font-size:1.6rem; font-weight:800; color:#0F172A; }
 .kpi-sub { font-size:0.7rem; color:#64748B; margin-top:5px; }
 
-/* Dashboard İçi Dataframe Daraltmaları (Recon Hariç) */
-[data-testid="stDataFrame"] { width: auto !important; }
+/* Dashboard İçi Dataframe Daraltmaları İptal Edildi (Ferah Görünüm) */
+[data-testid="stDataFrame"] { width: 100% !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -280,14 +291,12 @@ if page == "🛠️ Manage Users":
 # 6. ANALYSIS HOME PAGE (THE CORE)
 # ==========================================
 elif page == "🏠 Analysis Home":
-    # ALT BAŞLIK REVİZYONU
     st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0; color:#064e3b;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0; font-weight:600;">Support & Operational Intelligence Dashboard for HFOs</p></div><div style="text-align: right; color: #94a3b8; font-size: 15px;">Developed by <b>Can Adiguzel</b><br>{VERSION_NO} | {display_unit} View</div></div>""", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top:10px; margin-bottom:20px;'>", unsafe_allow_html=True)
 
     col_t1, col_t2 = st.columns([8, 2])
     with col_t2:
         toggle_label = "Switch to kEUR View" if st.session_state['view_currency'] == "Local" else f"Switch to k{currency} View"
-        # SWITCH BUTONU FIXİ (on_click kullanıldı)
         st.button(f"🔄 {toggle_label}", key="toggle_curr_btn", on_click=toggle_currency_view, use_container_width=True)
 
     if uploaded_file and tb_file:
@@ -327,7 +336,6 @@ elif page == "🏠 Analysis Home":
                 
             df['Segment'] = df['SOLAR Code'].apply(get_segment)
             
-            # YENİ AGING BUCKETS (Not Due ve 1-90 Birleştirildi)
             report_date = pd.to_datetime(df['Posting Date']).max() if 'Posting Date' in df.columns else pd.Timestamp(datetime.now())
             buckets = ["Not Due (1-90 Days)", "91-180 Days", "181-360 Days", "360+ Days"]
             
@@ -447,7 +455,6 @@ elif page == "🏠 Analysis Home":
         with tab1:
             st.markdown(f"### Payables Aging Summary ({display_unit})")
             aging_summary = payables_df.groupby('Bucket')['Amount'].sum().abs().reset_index()
-            # Kronolojik Sıralama
             aging_summary['Bucket'] = pd.Categorical(aging_summary['Bucket'], categories=buckets, ordered=True)
             aging_summary = aging_summary.sort_values('Bucket')
             
@@ -456,8 +463,8 @@ elif page == "🏠 Analysis Home":
                 disp_aging = aging_summary.copy()
                 disp_aging['Amount Scaled'] = disp_aging['Amount'].apply(lambda x: sc(x))
                 disp_aging = append_totals(disp_aging, ['Amount Scaled'], label_col='Bucket')
-                # use_container_width=False YAPILDI
-                st.dataframe(disp_aging[['Bucket', 'Amount Scaled']].style.format({'Amount Scaled': "{:,.0f}"}), use_container_width=False, hide_index=True)
+                disp_aging = prepare_for_display(disp_aging, ['Amount Scaled'])
+                st.dataframe(disp_aging[['Bucket', 'Amount Scaled']].style.format({'Amount Scaled': "{:,.0f}"}), use_container_width=True, hide_index=True)
             with c2:
                 fig = px.bar(aging_summary, x='Bucket', y=aging_summary['Amount']/scalar, text_auto=',.0f', title=f"Aging Distribution ({display_unit})", color='Bucket', color_discrete_sequence=px.colors.qualitative.Pastel)
                 fig.update_traces(textposition='outside')
@@ -474,6 +481,7 @@ elif page == "🏠 Analysis Home":
                 t10 = full_df.sort_values('Total', key=abs, ascending=False).head(10).reset_index()
                 for c in buckets + ['Total']: t10[c] = t10[c].apply(lambda x: sc(x))
                 t10 = append_totals(t10, buckets + ['Total'], label_col='Vendor')
+                t10 = prepare_for_display(t10, buckets + ['Total'])
                 return full_df, t10
 
             df_3rd = payables_df[payables_df['Segment'] == '3rd Party']
@@ -485,14 +493,14 @@ elif page == "🏠 Analysis Home":
             ap_full_emp, top10_emp = build_top10(df_emp)
 
             t_3rd, t_ico, t_emp = st.tabs(["🏭 3rd Party (40000)", "🔗 Intercompany ICO (42905)", "👤 Employee (42006)"])
-            with t_3rd: # use_container_width=False YAPILDI
-                if not top10_3rd.empty: st.dataframe(top10_3rd.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=False, hide_index=True)
+            with t_3rd:
+                if not top10_3rd.empty: st.dataframe(top10_3rd.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
                 else: st.info("No 3rd Party balances found.")
-            with t_ico: # use_container_width=False YAPILDI
-                if not top10_ico.empty: st.dataframe(top10_ico.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=False, hide_index=True)
+            with t_ico:
+                if not top10_ico.empty: st.dataframe(top10_ico.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
                 else: st.info("No Intercompany balances found.")
-            with t_emp: # use_container_width=False YAPILDI
-                if not top10_emp.empty: st.dataframe(top10_emp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=False, hide_index=True)
+            with t_emp:
+                if not top10_emp.empty: st.dataframe(top10_emp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
                 else: st.info("No Employee balances found.")
 
         with tab2:
@@ -507,8 +515,8 @@ elif page == "🏠 Analysis Home":
                 prep_disp = prep_full_df.sort_values('Total', key=abs, ascending=False).reset_index()
                 for col in buckets + ['Total']: prep_disp[col] = prep_disp[col].apply(lambda x: sc(x))
                 prep_disp = append_totals(prep_disp, buckets + ['Total'], label_col='Vendor')
-                # use_container_width=False YAPILDI
-                st.dataframe(prep_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=False, hide_index=True)
+                prep_disp = prepare_for_display(prep_disp, buckets + ['Total'])
+                st.dataframe(prep_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
 
         with tab3:
             st.markdown(f"### Debit Balance Details (Net Positive Vendors) - ({display_unit})")
@@ -522,10 +530,10 @@ elif page == "🏠 Analysis Home":
                 debit_disp = debit_full_df.sort_values('Total', key=abs, ascending=False).head(10).reset_index()
                 for col in buckets + ['Total']: debit_disp[col] = debit_disp[col].apply(lambda x: sc(x))
                 debit_disp = append_totals(debit_disp, buckets + ['Total'], label_col='Vendor')
+                debit_disp = prepare_for_display(debit_disp, buckets + ['Total'])
                 
                 st.markdown(f"**Top 10 Vendors in Debit Position**")
-                # use_container_width=False YAPILDI
-                st.dataframe(debit_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=False, hide_index=True)
+                st.dataframe(debit_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
 
         with tab4:
             st.markdown(f"### Detailed GL Breakdown ({display_unit})")
@@ -536,7 +544,7 @@ elif page == "🏠 Analysis Home":
             for col in buckets + ['Total Balance']: gl_disp[col] = gl_disp[col].apply(lambda x: sc(x))
             gl_disp = append_totals(gl_disp, buckets + ['Total Balance'], label_col='SOLAR Code')
             gl_disp.loc[gl_disp['SOLAR Code'] == 'TOTAL', 'GL'] = '' 
-            # Description uzun olduğu için bunda use_container_width=True kalsın
+            gl_disp = prepare_for_display(gl_disp, buckets + ['Total Balance'])
             st.dataframe(gl_disp.style.format({c: "{:,.0f}" for c in buckets+['Total Balance']}), use_container_width=True, hide_index=True)
 
         with tab5:
@@ -549,6 +557,7 @@ elif page == "🏠 Analysis Home":
                 for c in ['F.01 Balance', 'FBL1N Balance', 'Difference']: disp_rec[c] = disp_rec[c].apply(lambda x: sc(x))
                 disp_rec = append_totals(disp_rec, ['F.01 Balance', 'FBL1N Balance', 'Difference'], label_col='GL Account')
                 disp_rec.loc[disp_rec['GL Account'] == 'TOTAL', ['Description', 'SOLAR Group', 'Status']] = ''
+                disp_rec = prepare_for_display(disp_rec, ['F.01 Balance', 'FBL1N Balance', 'Difference'])
                 
                 st.dataframe(disp_rec.style.format({c: "{:,.0f}" for c in ['F.01 Balance', 'FBL1N Balance', 'Difference']})
                              .applymap(lambda x: 'background-color: #dcfce7; color: #065f46; font-weight: bold;' if x == '✅ Matched' else ('background-color: #fee2e2; color: #991b1b; font-weight: bold;' if x == '⚠️ Mismatch' else ''), subset=['Status']), 
@@ -564,6 +573,7 @@ elif page == "🏠 Analysis Home":
                     disp_gap['F.01 Balance'] = disp_gap['F.01 Balance'].apply(lambda x: sc(x))
                     disp_gap = append_totals(disp_gap, ['F.01 Balance'], label_col='GL Account')
                     disp_gap.loc[disp_gap['GL Account'] == 'TOTAL', ['Description', 'SOLAR Group']] = ''
+                    disp_gap = prepare_for_display(disp_gap, ['F.01 Balance'])
                     st.dataframe(disp_gap.style.format({'F.01 Balance': "{:,.0f}"}), use_container_width=True, hide_index=True)
 
         with tab6:
@@ -583,46 +593,44 @@ elif page == "🏠 Analysis Home":
             with col_ex2:
                 st.markdown("<div style='background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:16px;min-height:110px;'><b>📊 Detailed Excel Report</b><br/><span style='font-size:.75rem;color:#6B7280;'>Full Excel pack with Opella formatting.</span></div>", unsafe_allow_html=True)
                 
-                try:
-                    output_full = io.BytesIO()
-                    with pd.ExcelWriter(output_full, engine='xlsxwriter', engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
-                        def clean_and_total(df_in, numeric_cols, label_col='Vendor'):
-                            if df_in is None or df_in.empty: return pd.DataFrame()
-                            d = df_in.copy().reset_index() if df_in.index.name else df_in.copy()
-                            sort_c = next((c for c in ['Total', 'Total Balance', 'F.01 Balance', 'Difference'] if c in d.columns), None)
-                            if sort_c: d = d.sort_values(sort_c, key=abs, ascending=False)
-                            for c in numeric_cols:
-                                if c in d.columns: d[c] = (d[c]/scalar).round(0) if d[c].dtype != 'object' else d[c]
-                            return append_totals(d, numeric_cols, label_col)
-                        
-                        ex_3rd  = clean_and_total(ap_full_3rd, buckets + ['Total'], 'Vendor')
-                        ex_ico  = clean_and_total(ap_full_ico, buckets + ['Total'], 'Vendor')
-                        ex_emp  = clean_and_total(ap_full_emp, buckets + ['Total'], 'Vendor')
-                        ex_prep = clean_and_total(prep_full_df, buckets + ['Total'], 'Vendor') if not prep_df.empty else pd.DataFrame()
-                        ex_deb  = clean_and_total(debit_full_df, buckets + ['Total'], 'Vendor') if not debit_df.empty else pd.DataFrame()
-                        ex_gl   = clean_and_total(gl_pivot.reset_index(), buckets + ['Total Balance'], 'SOLAR Code')
-                        ex_rec  = clean_and_total(rec_df, ['F.01 Balance', 'FBL1N Balance', 'Difference'], 'GL Account')
-                        ex_gap  = clean_and_total(gap_df, ['F.01 Balance'], 'GL Account')
-                        
-                        if not ex_3rd.empty: format_excel_sheet(writer, ex_3rd, '3rd Party Aging')
-                        if not ex_ico.empty: format_excel_sheet(writer, ex_ico, 'ICO Aging')
-                        if not ex_emp.empty: format_excel_sheet(writer, ex_emp, 'Employee Aging')
-                        if not ex_prep.empty: format_excel_sheet(writer, ex_prep, 'Prepayment Detail')
-                        if not ex_deb.empty: format_excel_sheet(writer, ex_deb, 'Debit Balance Detail')
-                        format_excel_sheet(writer, ex_gl, 'GL Breakdown')
-                        format_excel_sheet(writer, ex_rec, 'Reconciliation Audit')
-                        if not ex_gap.empty: format_excel_sheet(writer, ex_gap, 'Recon - Missing FBL1N')
-                        format_excel_sheet(writer, df.head(5000), 'Raw Classified Sample')
-                        
-                    st.download_button(
-                        "📥 Download Excel Pack", 
-                        output_full.getvalue(), 
-                        f"Opella_AP_Dashboard_{display_unit}_{datetime.now().strftime('%Y%m%d')}.xlsx", 
-                        use_container_width=True, 
-                        type="primary"
-                    )
-                except Exception as e:
-                    st.error(f"Excel oluşturulurken bir hata oluştu: {e}")
+                # Excel Butonu ve Oluşturma (Hatasız)
+                output_full = io.BytesIO()
+                with pd.ExcelWriter(output_full, engine='xlsxwriter') as writer:
+                    def clean_and_total(df_in, numeric_cols, label_col='Vendor'):
+                        if df_in is None or df_in.empty: return pd.DataFrame()
+                        d = df_in.copy().reset_index() if df_in.index.name else df_in.copy()
+                        sort_c = next((c for c in ['Total', 'Total Balance', 'F.01 Balance', 'Difference'] if c in d.columns), None)
+                        if sort_c: d = d.sort_values(sort_c, key=abs, ascending=False)
+                        for c in numeric_cols:
+                            if c in d.columns: d[c] = (d[c]/scalar).round(0) if d[c].dtype != 'object' else d[c]
+                        return append_totals(d, numeric_cols, label_col)
+                    
+                    ex_3rd  = clean_and_total(ap_full_3rd, buckets + ['Total'], 'Vendor')
+                    ex_ico  = clean_and_total(ap_full_ico, buckets + ['Total'], 'Vendor')
+                    ex_emp  = clean_and_total(ap_full_emp, buckets + ['Total'], 'Vendor')
+                    ex_prep = clean_and_total(prep_full_df, buckets + ['Total'], 'Vendor') if not prep_df.empty else pd.DataFrame()
+                    ex_deb  = clean_and_total(debit_full_df, buckets + ['Total'], 'Vendor') if not debit_df.empty else pd.DataFrame()
+                    ex_gl   = clean_and_total(gl_pivot.reset_index(), buckets + ['Total Balance'], 'SOLAR Code')
+                    ex_rec  = clean_and_total(rec_df, ['F.01 Balance', 'FBL1N Balance', 'Difference'], 'GL Account')
+                    ex_gap  = clean_and_total(gap_df, ['F.01 Balance'], 'GL Account')
+                    
+                    if not ex_3rd.empty: format_excel_sheet(writer, ex_3rd, '3rd Party Aging')
+                    if not ex_ico.empty: format_excel_sheet(writer, ex_ico, 'ICO Aging')
+                    if not ex_emp.empty: format_excel_sheet(writer, ex_emp, 'Employee Aging')
+                    if not ex_prep.empty: format_excel_sheet(writer, ex_prep, 'Prepayment Detail')
+                    if not ex_deb.empty: format_excel_sheet(writer, ex_deb, 'Debit Balance Detail')
+                    format_excel_sheet(writer, ex_gl, 'GL Breakdown')
+                    format_excel_sheet(writer, ex_rec, 'Reconciliation Audit')
+                    if not ex_gap.empty: format_excel_sheet(writer, ex_gap, 'Recon - Missing FBL1N')
+                    format_excel_sheet(writer, df.head(5000), 'Raw Classified Sample')
+                    
+                st.download_button(
+                    "📥 Download Excel Pack", 
+                    output_full.getvalue(), 
+                    f"Opella_AP_Dashboard_{display_unit}_{datetime.now().strftime('%Y%m%d')}.xlsx", 
+                    use_container_width=True, 
+                    type="primary"
+                )
 
     elif not uploaded_file or not tb_file:
         st.info("👆 Please upload the required FBL1N and F.01 Trial Balance reports from the sidebar to begin.")
