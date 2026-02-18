@@ -16,7 +16,7 @@ except ImportError:
 # 1. MASTER CONFIGURATION & ADMIN SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella", layout="wide", page_icon="🛡️")
-VERSION_NO = "v39.0"
+VERSION_NO = "v40.0"
 MASTER_ADMIN = "can.adiguzel@sanofi.com"
 USER_DB = "users.xlsx"
 
@@ -169,10 +169,13 @@ ul[role="listbox"] li { color: #000000 !important; font-weight: bold !important;
 [data-testid="stFileUploadDropzone"] * { color: #000000 !important; -webkit-text-fill-color: #000000 !important; font-weight: 800 !important; }
 [data-testid="stSidebar"] button { background-color: #475569 !important; border: 1px solid #94A3B8 !important; color: #FFFFFF !important; font-weight: bold !important; border-radius: 6px; }
 [data-testid="stSidebar"] button:hover { background-color: #64748B !important; border-color: #CBD5E1 !important; }
-[data-testid="stDownloadButton"] button { background-color: #064e3b !important; color: #fde68a !important; border: 2px solid #022c22 !important; font-weight: 800 !important; border-radius: 8px !important; }
+
+/* Dışa Aktar Butonu Kesin Garantisi */
+[data-testid="stDownloadButton"] button { background-color: #064e3b !important; color: #fde68a !important; border: 2px solid #022c22 !important; font-weight: 800 !important; border-radius: 8px !important; width: 100%; }
 [data-testid="stDownloadButton"] button p { color: #fde68a !important; font-weight: 800 !important; }
 [data-testid="stDownloadButton"] button:hover { background-color: #022c22 !important; color: #ffffff !important; border-color: #fde68a !important; }
 [data-testid="stDownloadButton"] button:hover p { color: #ffffff !important; }
+
 .kpi-row { display:flex; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
 .kpi-card { flex:1; min-width:180px; background:#fff; border-radius:10px; padding:15px; box-shadow:0 1px 3px rgba(0,0,0,.1); border-top:4px solid #E5E7EB; }
 .kpi-card.blue { border-top-color:#1A56DB; }
@@ -271,7 +274,7 @@ if page == "🛠️ Manage Users":
 # 6. ANALYSIS HOME PAGE (THE CORE)
 # ==========================================
 elif page == "🏠 Analysis Home":
-    st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0; color:#064e3b;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0; font-weight:600;">Operational Intelligence Dashboard for HFOs</p></div><div style="text-align: right; color: #94a3b8; font-size: 15px;">Developed by <b>Can Adiguzel</b><br>{VERSION_NO} | {display_unit} View</div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0; color:#064e3b;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0; font-weight:600;">HFO Strategic Support & Operational Intelligence Dashboard</p></div><div style="text-align: right; color: #94a3b8; font-size: 15px;">Developed by <b>Can Adiguzel</b><br>{VERSION_NO} | {display_unit} View</div></div>""", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top:10px; margin-bottom:20px;'>", unsafe_allow_html=True)
 
     col_t1, col_t2 = st.columns([8, 2])
@@ -318,16 +321,17 @@ elif page == "🏠 Analysis Home":
                 
             df['Segment'] = df['SOLAR Code'].apply(get_segment)
             
+            # KRONOLOJİK VE YENİ AGING BUCKETS
             report_date = pd.to_datetime(df['Posting Date']).max() if 'Posting Date' in df.columns else pd.Timestamp(datetime.now())
-            buckets = ["Not Due", "1-30 Days", "31-90 Days", "91-360 Days", "360+ Days"]
+            buckets = ["Not Due", "1-90 Days", "91-180 Days", "181-360 Days", "360+ Days"]
             
             def calc_bucket(pay_date):
                 if pd.isna(pay_date): return "Not Due"
                 days = (report_date - pay_date).days
-                if days < 0: return "Not Due"
-                elif days <= 30: return "1-30 Days"
-                elif days <= 90: return "31-90 Days"
-                elif days <= 360: return "91-360 Days"
+                if days <= 0: return "Not Due"
+                elif days <= 90: return "1-90 Days"
+                elif days <= 180: return "91-180 Days"
+                elif days <= 360: return "181-360 Days"
                 else: return "360+ Days"
                 
             date_col = 'Payment date' if 'Payment date' in df.columns else ('Due Date' if 'Due Date' in df.columns else 'Document Date')
@@ -438,6 +442,7 @@ elif page == "🏠 Analysis Home":
         with tab1:
             st.markdown(f"### Payables Aging Summary ({display_unit})")
             aging_summary = payables_df.groupby('Bucket')['Amount'].sum().abs().reset_index()
+            # Kronolojik Bucket Sıralamasını Sabitle!
             aging_summary['Bucket'] = pd.Categorical(aging_summary['Bucket'], categories=buckets, ordered=True)
             aging_summary = aging_summary.sort_values('Bucket')
             
@@ -445,7 +450,7 @@ elif page == "🏠 Analysis Home":
             with c1:
                 disp_aging = aging_summary.copy()
                 disp_aging['Amount Scaled'] = disp_aging['Amount'].apply(lambda x: sc(x))
-                disp_aging = disp_aging.sort_values('Amount Scaled', ascending=False)
+                # BURADA SAKIN AMOUNT'A GÖRE SIRALAMA YAPMA, KRONOLOJİK KALSIN
                 disp_aging = append_totals(disp_aging, ['Amount Scaled'], label_col='Bucket')
                 st.dataframe(disp_aging[['Bucket', 'Amount Scaled']].style.format({'Amount Scaled': "{:,.0f}"}), use_container_width=True, hide_index=True)
             with c2:
@@ -570,44 +575,47 @@ elif page == "🏠 Analysis Home":
             with col_ex2:
                 st.markdown("<div style='background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:16px;min-height:110px;'><b>📊 Detailed Excel Report</b><br/><span style='font-size:.75rem;color:#6B7280;'>Full Excel pack with Opella formatting.</span></div>", unsafe_allow_html=True)
                 
-                output_full = io.BytesIO()
-                with pd.ExcelWriter(output_full, engine='xlsxwriter', engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
-                    def clean_and_total(df_in, numeric_cols, label_col='Vendor'):
-                        if df_in is None or df_in.empty: return pd.DataFrame()
-                        d = df_in.copy().reset_index() if df_in.index.name else df_in.copy()
-                        sort_c = next((c for c in ['Total', 'Total Balance', 'F.01 Balance', 'Difference'] if c in d.columns), None)
-                        if sort_c: d = d.sort_values(sort_c, key=abs, ascending=False)
+                try:
+                    output_full = io.BytesIO()
+                    with pd.ExcelWriter(output_full, engine='xlsxwriter', engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
+                        def clean_and_total(df_in, numeric_cols, label_col='Vendor'):
+                            if df_in is None or df_in.empty: return pd.DataFrame()
+                            d = df_in.copy().reset_index() if df_in.index.name else df_in.copy()
+                            sort_c = next((c for c in ['Total', 'Total Balance', 'F.01 Balance', 'Difference'] if c in d.columns), None)
+                            if sort_c: d = d.sort_values(sort_c, key=abs, ascending=False)
+                            for c in numeric_cols:
+                                if c in d.columns: d[c] = (d[c]/scalar).round(0) if d[c].dtype != 'object' else d[c]
+                            return append_totals(d, numeric_cols, label_col)
                         
-                        for c in numeric_cols:
-                            if c in d.columns: d[c] = (d[c]/scalar).round(0) if d[c].dtype != 'object' else d[c]
-                        return append_totals(d, numeric_cols, label_col)
-                    
-                    ex_3rd  = clean_and_total(ap_full_3rd, buckets + ['Total'], 'Vendor')
-                    ex_ico  = clean_and_total(ap_full_ico, buckets + ['Total'], 'Vendor')
-                    ex_emp  = clean_and_total(ap_full_emp, buckets + ['Total'], 'Vendor')
-                    ex_prep = clean_and_total(prep_full_df, buckets + ['Total'], 'Vendor') if not prep_df.empty else pd.DataFrame()
-                    ex_deb  = clean_and_total(debit_full_df, buckets + ['Total'], 'Vendor') if not debit_df.empty else pd.DataFrame()
-                    ex_gl   = clean_and_total(gl_pivot.reset_index(), buckets + ['Total Balance'], 'SOLAR Code')
-                    ex_rec  = clean_and_total(rec_df, ['F.01 Balance', 'FBL1N Balance', 'Difference'], 'GL Account')
-                    ex_gap  = clean_and_total(gap_df, ['F.01 Balance'], 'GL Account')
-                    
-                    if not ex_3rd.empty: format_excel_sheet(writer, ex_3rd, '3rd Party Aging')
-                    if not ex_ico.empty: format_excel_sheet(writer, ex_ico, 'ICO Aging')
-                    if not ex_emp.empty: format_excel_sheet(writer, ex_emp, 'Employee Aging')
-                    if not ex_prep.empty: format_excel_sheet(writer, ex_prep, 'Prepayment Detail')
-                    if not ex_deb.empty: format_excel_sheet(writer, ex_deb, 'Debit Balance Detail')
-                    format_excel_sheet(writer, ex_gl, 'GL Breakdown')
-                    format_excel_sheet(writer, ex_rec, 'Reconciliation Audit')
-                    if not ex_gap.empty: format_excel_sheet(writer, ex_gap, 'Recon - Missing FBL1N')
-                    format_excel_sheet(writer, df.head(5000), 'Raw Classified Sample')
-                    
-                st.download_button(
-                    "📥 Download Excel Pack", 
-                    output_full.getvalue(), 
-                    f"Opella_AP_Dashboard_{display_unit}_{datetime.now().strftime('%Y%m%d')}.xlsx", 
-                    use_container_width=True, 
-                    type="primary"
-                )
+                        ex_3rd  = clean_and_total(ap_full_3rd, buckets + ['Total'], 'Vendor')
+                        ex_ico  = clean_and_total(ap_full_ico, buckets + ['Total'], 'Vendor')
+                        ex_emp  = clean_and_total(ap_full_emp, buckets + ['Total'], 'Vendor')
+                        ex_prep = clean_and_total(prep_full_df, buckets + ['Total'], 'Vendor') if not prep_df.empty else pd.DataFrame()
+                        ex_deb  = clean_and_total(debit_full_df, buckets + ['Total'], 'Vendor') if not debit_df.empty else pd.DataFrame()
+                        ex_gl   = clean_and_total(gl_pivot.reset_index(), buckets + ['Total Balance'], 'SOLAR Code')
+                        ex_rec  = clean_and_total(rec_df, ['F.01 Balance', 'FBL1N Balance', 'Difference'], 'GL Account')
+                        ex_gap  = clean_and_total(gap_df, ['F.01 Balance'], 'GL Account')
+                        
+                        if not ex_3rd.empty: format_excel_sheet(writer, ex_3rd, '3rd Party Aging')
+                        if not ex_ico.empty: format_excel_sheet(writer, ex_ico, 'ICO Aging')
+                        if not ex_emp.empty: format_excel_sheet(writer, ex_emp, 'Employee Aging')
+                        if not ex_prep.empty: format_excel_sheet(writer, ex_prep, 'Prepayment Detail')
+                        if not ex_deb.empty: format_excel_sheet(writer, ex_deb, 'Debit Balance Detail')
+                        format_excel_sheet(writer, ex_gl, 'GL Breakdown')
+                        format_excel_sheet(writer, ex_rec, 'Reconciliation Audit')
+                        if not ex_gap.empty: format_excel_sheet(writer, ex_gap, 'Recon - Missing FBL1N')
+                        format_excel_sheet(writer, df.head(5000), 'Raw Classified Sample')
+                        
+                    # EXCEL BUTONU KALICI VE GÜVENLİ HALE GETİRİLDİ
+                    st.download_button(
+                        "📥 Download Excel Pack", 
+                        output_full.getvalue(), 
+                        f"Opella_AP_Dashboard_{display_unit}_{datetime.now().strftime('%Y%m%d')}.xlsx", 
+                        use_container_width=True, 
+                        type="primary"
+                    )
+                except Exception as e:
+                    st.error(f"Excel oluşturulurken bir hata oluştu: {e}")
 
     elif not uploaded_file or not tb_file:
         st.info("👆 Please upload the required FBL1N and F.01 Trial Balance reports from the sidebar to begin.")
