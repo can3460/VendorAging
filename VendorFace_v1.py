@@ -16,7 +16,7 @@ except ImportError:
 # 1. MASTER CONFIGURATION & ADMIN SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella", layout="wide", page_icon="🛡️")
-VERSION_NO = "v40.0"
+VERSION_NO = "v41.0"
 MASTER_ADMIN = "can.adiguzel@sanofi.com"
 USER_DB = "users.xlsx"
 
@@ -153,6 +153,10 @@ def format_excel_sheet(writer, df, sheet_name):
                 else:
                     worksheet.write(row_num + 1, col_num, val_to_write, cell_format)
 
+# Buton Fixi: Durum Değiştirme Fonksiyonu
+def toggle_currency_view():
+    st.session_state['view_currency'] = "EUR" if st.session_state['view_currency'] == "Local" else "Local"
+
 # ==========================================
 # 3. UI & LOGIN SYSTEM (OPELLA CSS)
 # ==========================================
@@ -186,7 +190,9 @@ ul[role="listbox"] li { color: #000000 !important; font-weight: bold !important;
 .kpi-label { font-size:0.75rem; text-transform:uppercase; color:#64748B; font-weight:700; margin-bottom:5px; }
 .kpi-value { font-size:1.6rem; font-weight:800; color:#0F172A; }
 .kpi-sub { font-size:0.7rem; color:#64748B; margin-top:5px; }
-[data-testid="stDataFrame"] { width: 100% !important; }
+
+/* Dashboard İçi Dataframe Daraltmaları (Recon Hariç) */
+[data-testid="stDataFrame"] { width: auto !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -274,15 +280,15 @@ if page == "🛠️ Manage Users":
 # 6. ANALYSIS HOME PAGE (THE CORE)
 # ==========================================
 elif page == "🏠 Analysis Home":
-    st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0; color:#064e3b;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0; font-weight:600;">HFO Strategic Support & Operational Intelligence Dashboard</p></div><div style="text-align: right; color: #94a3b8; font-size: 15px;">Developed by <b>Can Adiguzel</b><br>{VERSION_NO} | {display_unit} View</div></div>""", unsafe_allow_html=True)
+    # ALT BAŞLIK REVİZYONU
+    st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0; color:#064e3b;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0; font-weight:600;">Support & Operational Intelligence Dashboard for HFOs</p></div><div style="text-align: right; color: #94a3b8; font-size: 15px;">Developed by <b>Can Adiguzel</b><br>{VERSION_NO} | {display_unit} View</div></div>""", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top:10px; margin-bottom:20px;'>", unsafe_allow_html=True)
 
     col_t1, col_t2 = st.columns([8, 2])
     with col_t2:
         toggle_label = "Switch to kEUR View" if st.session_state['view_currency'] == "Local" else f"Switch to k{currency} View"
-        if st.button(f"🔄 {toggle_label}", use_container_width=True):
-            st.session_state['view_currency'] = "EUR" if st.session_state['view_currency'] == "Local" else "Local"
-            st.rerun()
+        # SWITCH BUTONU FIXİ (on_click kullanıldı)
+        st.button(f"🔄 {toggle_label}", key="toggle_curr_btn", on_click=toggle_currency_view, use_container_width=True)
 
     if uploaded_file and tb_file:
         btn_text = "🔄 Refresh Data & Re-Run Analysis" if st.session_state['analysis_run'] else "🚀 Run Analysis Engine"
@@ -321,15 +327,14 @@ elif page == "🏠 Analysis Home":
                 
             df['Segment'] = df['SOLAR Code'].apply(get_segment)
             
-            # KRONOLOJİK VE YENİ AGING BUCKETS
+            # YENİ AGING BUCKETS (Not Due ve 1-90 Birleştirildi)
             report_date = pd.to_datetime(df['Posting Date']).max() if 'Posting Date' in df.columns else pd.Timestamp(datetime.now())
-            buckets = ["Not Due", "1-90 Days", "91-180 Days", "181-360 Days", "360+ Days"]
+            buckets = ["Not Due (1-90 Days)", "91-180 Days", "181-360 Days", "360+ Days"]
             
             def calc_bucket(pay_date):
-                if pd.isna(pay_date): return "Not Due"
+                if pd.isna(pay_date): return "Not Due (1-90 Days)"
                 days = (report_date - pay_date).days
-                if days <= 0: return "Not Due"
-                elif days <= 90: return "1-90 Days"
+                if days <= 90: return "Not Due (1-90 Days)"
                 elif days <= 180: return "91-180 Days"
                 elif days <= 360: return "181-360 Days"
                 else: return "360+ Days"
@@ -442,7 +447,7 @@ elif page == "🏠 Analysis Home":
         with tab1:
             st.markdown(f"### Payables Aging Summary ({display_unit})")
             aging_summary = payables_df.groupby('Bucket')['Amount'].sum().abs().reset_index()
-            # Kronolojik Bucket Sıralamasını Sabitle!
+            # Kronolojik Sıralama
             aging_summary['Bucket'] = pd.Categorical(aging_summary['Bucket'], categories=buckets, ordered=True)
             aging_summary = aging_summary.sort_values('Bucket')
             
@@ -450,9 +455,9 @@ elif page == "🏠 Analysis Home":
             with c1:
                 disp_aging = aging_summary.copy()
                 disp_aging['Amount Scaled'] = disp_aging['Amount'].apply(lambda x: sc(x))
-                # BURADA SAKIN AMOUNT'A GÖRE SIRALAMA YAPMA, KRONOLOJİK KALSIN
                 disp_aging = append_totals(disp_aging, ['Amount Scaled'], label_col='Bucket')
-                st.dataframe(disp_aging[['Bucket', 'Amount Scaled']].style.format({'Amount Scaled': "{:,.0f}"}), use_container_width=True, hide_index=True)
+                # use_container_width=False YAPILDI
+                st.dataframe(disp_aging[['Bucket', 'Amount Scaled']].style.format({'Amount Scaled': "{:,.0f}"}), use_container_width=False, hide_index=True)
             with c2:
                 fig = px.bar(aging_summary, x='Bucket', y=aging_summary['Amount']/scalar, text_auto=',.0f', title=f"Aging Distribution ({display_unit})", color='Bucket', color_discrete_sequence=px.colors.qualitative.Pastel)
                 fig.update_traces(textposition='outside')
@@ -480,14 +485,14 @@ elif page == "🏠 Analysis Home":
             ap_full_emp, top10_emp = build_top10(df_emp)
 
             t_3rd, t_ico, t_emp = st.tabs(["🏭 3rd Party (40000)", "🔗 Intercompany ICO (42905)", "👤 Employee (42006)"])
-            with t_3rd:
-                if not top10_3rd.empty: st.dataframe(top10_3rd.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
+            with t_3rd: # use_container_width=False YAPILDI
+                if not top10_3rd.empty: st.dataframe(top10_3rd.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=False, hide_index=True)
                 else: st.info("No 3rd Party balances found.")
-            with t_ico:
-                if not top10_ico.empty: st.dataframe(top10_ico.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
+            with t_ico: # use_container_width=False YAPILDI
+                if not top10_ico.empty: st.dataframe(top10_ico.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=False, hide_index=True)
                 else: st.info("No Intercompany balances found.")
-            with t_emp:
-                if not top10_emp.empty: st.dataframe(top10_emp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
+            with t_emp: # use_container_width=False YAPILDI
+                if not top10_emp.empty: st.dataframe(top10_emp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=False, hide_index=True)
                 else: st.info("No Employee balances found.")
 
         with tab2:
@@ -502,7 +507,8 @@ elif page == "🏠 Analysis Home":
                 prep_disp = prep_full_df.sort_values('Total', key=abs, ascending=False).reset_index()
                 for col in buckets + ['Total']: prep_disp[col] = prep_disp[col].apply(lambda x: sc(x))
                 prep_disp = append_totals(prep_disp, buckets + ['Total'], label_col='Vendor')
-                st.dataframe(prep_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
+                # use_container_width=False YAPILDI
+                st.dataframe(prep_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=False, hide_index=True)
 
         with tab3:
             st.markdown(f"### Debit Balance Details (Net Positive Vendors) - ({display_unit})")
@@ -518,7 +524,8 @@ elif page == "🏠 Analysis Home":
                 debit_disp = append_totals(debit_disp, buckets + ['Total'], label_col='Vendor')
                 
                 st.markdown(f"**Top 10 Vendors in Debit Position**")
-                st.dataframe(debit_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
+                # use_container_width=False YAPILDI
+                st.dataframe(debit_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=False, hide_index=True)
 
         with tab4:
             st.markdown(f"### Detailed GL Breakdown ({display_unit})")
@@ -529,6 +536,7 @@ elif page == "🏠 Analysis Home":
             for col in buckets + ['Total Balance']: gl_disp[col] = gl_disp[col].apply(lambda x: sc(x))
             gl_disp = append_totals(gl_disp, buckets + ['Total Balance'], label_col='SOLAR Code')
             gl_disp.loc[gl_disp['SOLAR Code'] == 'TOTAL', 'GL'] = '' 
+            # Description uzun olduğu için bunda use_container_width=True kalsın
             st.dataframe(gl_disp.style.format({c: "{:,.0f}" for c in buckets+['Total Balance']}), use_container_width=True, hide_index=True)
 
         with tab5:
@@ -606,7 +614,6 @@ elif page == "🏠 Analysis Home":
                         if not ex_gap.empty: format_excel_sheet(writer, ex_gap, 'Recon - Missing FBL1N')
                         format_excel_sheet(writer, df.head(5000), 'Raw Classified Sample')
                         
-                    # EXCEL BUTONU KALICI VE GÜVENLİ HALE GETİRİLDİ
                     st.download_button(
                         "📥 Download Excel Pack", 
                         output_full.getvalue(), 
