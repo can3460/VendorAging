@@ -16,7 +16,7 @@ except ImportError:
 # 1. MASTER CONFIGURATION & ADMIN SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella", layout="wide", page_icon="🛡️")
-VERSION_NO = "v37.0"
+VERSION_NO = "v38.0"
 MASTER_ADMIN = "can.adiguzel@sanofi.com"
 USER_DB = "users.xlsx"
 
@@ -121,116 +121,64 @@ def generate_html_report(dfs, titles, display_curr, rate):
     html += "</body></html>"
     return html
 
-# Excel Formatlama Fonksiyonu - NaN Hatası Giderildi
+# Excel Formatlama Fonksiyonu - RAM/Sonsuz Çerçeve Optimizasyonu
 def format_excel_sheet(writer, df, sheet_name):
-    # NaN değerleri boş stringe çeviriyoruz ki xlsxwriter hata vermesin
     df = df.fillna("")
-    
     df.to_excel(writer, sheet_name=sheet_name, index=False)
     workbook = writer.book
     worksheet = writer.sheets[sheet_name]
     
-    header_format = workbook.add_format({
-        'bold': True, 'font_color': '#fde68a', 'bg_color': '#064e3b', 
-        'border': 1, 'align': 'center', 'valign': 'vcenter'
-    })
+    header_format = workbook.add_format({'bold': True, 'font_color': '#fde68a', 'bg_color': '#064e3b', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
     cell_format = workbook.add_format({'border': 1})
     num_format = workbook.add_format({'border': 1, 'num_format': '#,##0'})
+    total_row_format = workbook.add_format({'bold': True, 'font_color': '#fde68a', 'bg_color': '#064e3b', 'border': 1, 'num_format': '#,##0'})
     
-    total_row_format = workbook.add_format({
-        'bold': True, 'font_color': '#fde68a', 'bg_color': '#064e3b', 
-        'border': 1, 'num_format': '#,##0'
-    })
-    
+    # 1. Sadece sütun genişliklerini ayarla (Format uygulamadan)
     for col_num, value in enumerate(df.columns.values):
         worksheet.write(0, col_num, value, header_format)
         column_len = max(df[value].astype(str).map(len).max(), len(str(value))) + 2
         
-        # Sütunun geneli numeric ise
         is_numeric = pd.to_numeric(df[value].replace('', np.nan), errors='coerce').notna().any()
-        if is_numeric:
-            worksheet.set_column(col_num, col_num, min(column_len, 25), num_format)
-        else:
-            worksheet.set_column(col_num, col_num, min(column_len, 45), cell_format)
+        # Format eklemeden sadece width belirliyoruz (Sonsuz border engellendi)
+        worksheet.set_column(col_num, col_num, min(column_len, 25) if is_numeric else min(column_len, 45))
+        
+    # 2. Hücreleri teker teker verisiyle yaz ve formatla (RAM Dostu)
+    for row_num in range(len(df)):
+        is_total_row = ('TOTAL' in df.iloc[row_num].values)
+        for col_num in range(len(df.columns)):
+            val = df.iloc[row_num, col_num]
+            val_to_write = "" if pd.isna(val) or val == "" else val
             
-    if not df.empty and ('TOTAL' in df.iloc[-1].values):
-        last_row_idx = len(df)
-        for col_num, value in enumerate(df.iloc[-1].values):
-            val_to_write = "" if pd.isna(value) or value == "" else value
-            worksheet.write(last_row_idx, col_num, val_to_write, total_row_format)
+            if is_total_row:
+                worksheet.write(row_num + 1, col_num, val_to_write, total_row_format)
+            else:
+                col_name = df.columns[col_num]
+                # Numeric kolonları kontrol et
+                if pd.to_numeric(df[col_name].replace('', np.nan), errors='coerce').notna().any() and isinstance(val, (int, float)):
+                    worksheet.write(row_num + 1, col_num, val_to_write, num_format)
+                else:
+                    worksheet.write(row_num + 1, col_num, val_to_write, cell_format)
 
 # ==========================================
 # 3. UI & LOGIN SYSTEM (OPELLA CSS)
 # ==========================================
 st.markdown("""
 <style>
-/* OPELLA DARK GREEN SIDEBAR */
 [data-testid="stSidebar"] { background: linear-gradient(160deg, #022c22 0%, #064e3b 100%); }
-
-/* Sidebar Base Text Colors */
-[data-testid="stSidebar"] label, 
-[data-testid="stSidebar"] p, 
-[data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p { 
-    color: #F8FAFC !important; 
-    font-weight: 500; 
-}
-
-/* FIX FOR DROPDOWNS & INPUTS (Bembeyaz Arka Plan, Simsiyah Metin) */
-[data-testid="stSidebar"] input { 
-    color: #000000 !important; 
-    background-color: #ffffff !important; 
-    -webkit-text-fill-color: #000000 !important;
-    font-weight: 800 !important;
-}
-[data-testid="stSidebar"] div[data-baseweb="select"] > div { 
-    background-color: #ffffff !important; 
-    cursor: pointer; 
-}
-[data-testid="stSidebar"] div[data-baseweb="select"] span { 
-    color: #000000 !important; 
-    -webkit-text-fill-color: #000000 !important;
-    font-weight: 800 !important; 
-}
-/* Dropdown List Items */
+[data-testid="stSidebar"] label, [data-testid="stSidebar"] p, [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p { color: #F8FAFC !important; font-weight: 500; }
+[data-testid="stSidebar"] input { color: #000000 !important; background-color: #ffffff !important; -webkit-text-fill-color: #000000 !important; font-weight: 800 !important; }
+[data-testid="stSidebar"] div[data-baseweb="select"] > div { background-color: #ffffff !important; cursor: pointer; }
+[data-testid="stSidebar"] div[data-baseweb="select"] span { color: #000000 !important; -webkit-text-fill-color: #000000 !important; font-weight: 800 !important; }
 ul[role="listbox"] { background-color: #ffffff !important; }
 ul[role="listbox"] li { color: #000000 !important; font-weight: bold !important; }
-
-/* FIX FOR FILE UPLOADER (Bembeyaz Arka Plan, Simsiyah Metin) */
-[data-testid="stFileUploadDropzone"] { 
-    background-color: #ffffff !important; 
-    border: 2px dashed #94A3B8 !important;
-}
-[data-testid="stFileUploadDropzone"] * {
-    color: #000000 !important;
-    -webkit-text-fill-color: #000000 !important;
-    font-weight: 800 !important;
-}
-
-/* Sidebar Buttons */
-[data-testid="stSidebar"] button { 
-    background-color: #475569 !important; 
-    border: 1px solid #94A3B8 !important; 
-    color: #FFFFFF !important; 
-    font-weight: bold !important; 
-    border-radius: 6px; 
-}
+[data-testid="stFileUploadDropzone"] { background-color: #ffffff !important; border: 2px dashed #94A3B8 !important; }
+[data-testid="stFileUploadDropzone"] * { color: #000000 !important; -webkit-text-fill-color: #000000 !important; font-weight: 800 !important; }
+[data-testid="stSidebar"] button { background-color: #475569 !important; border: 1px solid #94A3B8 !important; color: #FFFFFF !important; font-weight: bold !important; border-radius: 6px; }
 [data-testid="stSidebar"] button:hover { background-color: #64748B !important; border-color: #CBD5E1 !important; }
-
-/* Main Area Download Buttons */
-[data-testid="stDownloadButton"] button {
-    background-color: #064e3b !important;
-    color: #fde68a !important; 
-    border: 2px solid #022c22 !important;
-    font-weight: 800 !important;
-    border-radius: 8px !important;
-}
+[data-testid="stDownloadButton"] button { background-color: #064e3b !important; color: #fde68a !important; border: 2px solid #022c22 !important; font-weight: 800 !important; border-radius: 8px !important; }
 [data-testid="stDownloadButton"] button p { color: #fde68a !important; font-weight: 800 !important; }
-[data-testid="stDownloadButton"] button:hover {
-    background-color: #022c22 !important; color: #ffffff !important; border-color: #fde68a !important;
-}
+[data-testid="stDownloadButton"] button:hover { background-color: #022c22 !important; color: #ffffff !important; border-color: #fde68a !important; }
 [data-testid="stDownloadButton"] button:hover p { color: #ffffff !important; }
-
-/* Dashboard Cards */
 .kpi-row { display:flex; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
 .kpi-card { flex:1; min-width:180px; background:#fff; border-radius:10px; padding:15px; box-shadow:0 1px 3px rgba(0,0,0,.1); border-top:4px solid #E5E7EB; }
 .kpi-card.blue { border-top-color:#1A56DB; }
@@ -241,8 +189,6 @@ ul[role="listbox"] li { color: #000000 !important; font-weight: bold !important;
 .kpi-label { font-size:0.75rem; text-transform:uppercase; color:#64748B; font-weight:700; margin-bottom:5px; }
 .kpi-value { font-size:1.6rem; font-weight:800; color:#0F172A; }
 .kpi-sub { font-size:0.7rem; color:#64748B; margin-top:5px; }
-
-/* Dataframes Full Width */
 [data-testid="stDataFrame"] { width: 100% !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -331,7 +277,7 @@ if page == "🛠️ Manage Users":
 # 6. ANALYSIS HOME PAGE (THE CORE)
 # ==========================================
 elif page == "🏠 Analysis Home":
-    st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0; color:#064e3b;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0;">Operational Audit & Intelligence Dashboard</p></div><div style="text-align: right; color: #94a3b8; font-size: 11px;">Developed by <b>Can Adiguzel</b><br>{VERSION_NO} | {display_unit} View</div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0; color:#064e3b;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0; font-weight:600;">HFO Strategic Support & Operational Intelligence Dashboard</p></div><div style="text-align: right; color: #94a3b8; font-size: 15px;">Developed by <b>Can Adiguzel</b><br>{VERSION_NO} | {display_unit} View</div></div>""", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top:10px; margin-bottom:20px;'>", unsafe_allow_html=True)
 
     col_t1, col_t2 = st.columns([8, 2])
@@ -505,6 +451,7 @@ elif page == "🏠 Analysis Home":
             with c1:
                 disp_aging = aging_summary.copy()
                 disp_aging['Amount Scaled'] = disp_aging['Amount'].apply(lambda x: sc(x))
+                disp_aging = disp_aging.sort_values('Amount Scaled', ascending=False)
                 disp_aging = append_totals(disp_aging, ['Amount Scaled'], label_col='Bucket')
                 st.dataframe(disp_aging[['Bucket', 'Amount Scaled']].style.format({'Amount Scaled': "{:,.0f}"}), use_container_width=True, hide_index=True)
             with c2:
@@ -514,14 +461,35 @@ elif page == "🏠 Analysis Home":
                 st.plotly_chart(fig, use_container_width=True)
 
             st.divider()
-            st.markdown(f"### Top 10 Vendor Aging ({display_unit})")
-            ap_full_df = payables_df.pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
-            ap_full_df['Total'] = ap_full_df.sum(axis=1)
+            st.markdown(f"### Top 10 Vendor Aging by Segment ({display_unit})")
             
-            top10_disp = ap_full_df.sort_values('Total', key=abs, ascending=False).head(10).reset_index()
-            for col in buckets + ['Total']: top10_disp[col] = top10_disp[col].apply(lambda x: sc(x))
-            top10_disp = append_totals(top10_disp, buckets + ['Total'], label_col='Vendor')
-            st.dataframe(top10_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
+            def build_top10(segment_df):
+                if segment_df.empty: return pd.DataFrame(), pd.DataFrame()
+                full_df = segment_df.pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
+                full_df['Total'] = full_df.sum(axis=1)
+                t10 = full_df.sort_values('Total', key=abs, ascending=False).head(10).reset_index()
+                for c in buckets + ['Total']: t10[c] = t10[c].apply(lambda x: sc(x))
+                t10 = append_totals(t10, buckets + ['Total'], label_col='Vendor')
+                return full_df, t10
+
+            df_3rd = payables_df[payables_df['Segment'] == '3rd Party']
+            df_ico = payables_df[payables_df['Segment'] == 'ICO']
+            df_emp = payables_df[payables_df['Segment'] == 'Employee']
+
+            ap_full_3rd, top10_3rd = build_top10(df_3rd)
+            ap_full_ico, top10_ico = build_top10(df_ico)
+            ap_full_emp, top10_emp = build_top10(df_emp)
+
+            t_3rd, t_ico, t_emp = st.tabs(["🏭 3rd Party (40000)", "🔗 Intercompany ICO (42905)", "👤 Employee (42006)"])
+            with t_3rd:
+                if not top10_3rd.empty: st.dataframe(top10_3rd.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
+                else: st.info("No 3rd Party balances found.")
+            with t_ico:
+                if not top10_ico.empty: st.dataframe(top10_ico.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
+                else: st.info("No Intercompany balances found.")
+            with t_emp:
+                if not top10_emp.empty: st.dataframe(top10_emp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
+                else: st.info("No Employee balances found.")
 
         with tab2:
             st.markdown(f"### Prepayments Detail - SOLAR 24018 ({display_unit})")
@@ -598,21 +566,20 @@ elif page == "🏠 Analysis Home":
             with col_ex1:
                 st.markdown("<div style='background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:16px;min-height:110px;'><b>🌐 HTML Dashboard</b><br/><span style='font-size:.75rem;color:#6B7280;'>Printable web layout of the analysis.</span></div>", unsafe_allow_html=True)
                 
-                ex_ap_html = ap_full_df.sort_values('Total', key=abs, ascending=False).reset_index()
-                for col in buckets + ['Total']: ex_ap_html[col] = ex_ap_html[col].apply(lambda x: sc(x))
-                ex_ap_html = append_totals(ex_ap_html, buckets + ['Total'], label_col='Vendor')
-                
-                html_out = generate_html_report([ex_ap_html, gl_disp, top10_disp, disp_rec, disp_gap if not gap_df.empty else None], ["1. Full AP Aging Summary", "2. GL Breakdown", "3. Top 10 Payables", "4. Reconciliation Status", "5. Missing FBL1N Items (HFO Advisory)"], display_unit, eur_rate)
+                html_out = generate_html_report([
+                    top10_3rd, top10_ico, top10_emp, gl_disp, disp_rec, disp_gap if not gap_df.empty else None
+                ], [
+                    "1. Top 10 3rd Party Aging", "2. Top 10 ICO Aging", "3. Top 10 Employee Aging", "4. GL Breakdown", "5. Reconciliation Status", "6. Missing FBL1N Items (HFO Advisory)"
+                ], display_unit, eur_rate)
                 st.download_button("📄 Download HTML Report", html_out, f"Opella_Dashboard_{display_unit}.html", "text/html", use_container_width=True)
                 
             with col_ex2:
                 st.markdown("<div style='background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:16px;min-height:110px;'><b>📊 Detailed Excel Report</b><br/><span style='font-size:.75rem;color:#6B7280;'>Full Excel pack with Opella formatting.</span></div>", unsafe_allow_html=True)
                 
                 output_full = io.BytesIO()
-                # nan_inf_to_errors eklendi
                 with pd.ExcelWriter(output_full, engine='xlsxwriter', engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
                     def clean_and_total(df_in, numeric_cols, label_col='Vendor'):
-                        if df_in.empty: return df_in
+                        if df_in is None or df_in.empty: return pd.DataFrame()
                         d = df_in.copy().reset_index() if df_in.index.name else df_in.copy()
                         sort_c = next((c for c in ['Total', 'Total Balance', 'F.01 Balance', 'Difference'] if c in d.columns), None)
                         if sort_c: d = d.sort_values(sort_c, key=abs, ascending=False)
@@ -621,14 +588,18 @@ elif page == "🏠 Analysis Home":
                             if c in d.columns: d[c] = (d[c]/scalar).round(0) if d[c].dtype != 'object' else d[c]
                         return append_totals(d, numeric_cols, label_col)
                     
-                    ex_ap   = clean_and_total(ap_full_df, buckets + ['Total'], 'Vendor')
+                    ex_3rd  = clean_and_total(ap_full_3rd, buckets + ['Total'], 'Vendor')
+                    ex_ico  = clean_and_total(ap_full_ico, buckets + ['Total'], 'Vendor')
+                    ex_emp  = clean_and_total(ap_full_emp, buckets + ['Total'], 'Vendor')
                     ex_prep = clean_and_total(prep_full_df, buckets + ['Total'], 'Vendor') if not prep_df.empty else pd.DataFrame()
                     ex_deb  = clean_and_total(debit_full_df, buckets + ['Total'], 'Vendor') if not debit_df.empty else pd.DataFrame()
                     ex_gl   = clean_and_total(gl_pivot.reset_index(), buckets + ['Total Balance'], 'SOLAR Code')
                     ex_rec  = clean_and_total(rec_df, ['F.01 Balance', 'FBL1N Balance', 'Difference'], 'GL Account')
                     ex_gap  = clean_and_total(gap_df, ['F.01 Balance'], 'GL Account')
                     
-                    format_excel_sheet(writer, ex_ap, 'AP Aging Summary')
+                    if not ex_3rd.empty: format_excel_sheet(writer, ex_3rd, '3rd Party Aging')
+                    if not ex_ico.empty: format_excel_sheet(writer, ex_ico, 'ICO Aging')
+                    if not ex_emp.empty: format_excel_sheet(writer, ex_emp, 'Employee Aging')
                     if not ex_prep.empty: format_excel_sheet(writer, ex_prep, 'Prepayment Detail')
                     if not ex_deb.empty: format_excel_sheet(writer, ex_deb, 'Debit Balance Detail')
                     format_excel_sheet(writer, ex_gl, 'GL Breakdown')
