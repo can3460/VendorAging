@@ -16,7 +16,7 @@ except ImportError:
 # 1. MASTER CONFIGURATION & ADMIN SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella", layout="wide", page_icon="🛡️")
-VERSION_NO = "v44.0"
+VERSION_NO = "v45.0"
 MASTER_ADMIN = "can.adiguzel@sanofi.com"
 USER_DB = "users.xlsx"
 
@@ -27,7 +27,6 @@ if 'analysis_run' not in st.session_state: st.session_state['analysis_run'] = Fa
 
 def load_users():
     if not os.path.exists(USER_DB):
-        # ÖN TANIMLI MAİLLER EKLENDİ
         default_users = pd.DataFrame([
             {"email": MASTER_ADMIN, "role": "admin"},
             {"email": "can.adiguzel@opella.com", "role": "admin"},
@@ -107,7 +106,7 @@ def smart_parse_tb(file):
         return {}, {}, {}
 
 def append_totals(df, numeric_cols, label_col='Vendor'):
-    if df.empty: return df
+    if df is None or df.empty: return df
     tot_dict = {c: df[c].sum() for c in numeric_cols if c in df.columns}
     tot_dict[label_col] = 'TOTAL'
     tot_df = pd.DataFrame([tot_dict])
@@ -127,7 +126,11 @@ def generate_html_report(dfs, titles, display_curr, rate):
     return html
 
 def format_excel_sheet(writer, df, sheet_name):
-    df = df.replace([np.inf, -np.inf], np.nan)
+    # BOŞ TABLO KORUMASI: Çökmeyi engeller
+    if df is None or df.empty:
+        df = pd.DataFrame({'Data': ['No data available']})
+        
+    df = df.replace([np.inf, -np.inf], np.nan).fillna("")
     df.to_excel(writer, sheet_name=sheet_name, index=False)
     workbook = writer.book
     worksheet = writer.sheets[sheet_name]
@@ -162,6 +165,7 @@ def toggle_currency_view():
     st.session_state['view_currency'] = "EUR" if st.session_state['view_currency'] == "Local" else "Local"
 
 def prepare_for_display(df, numeric_cols):
+    if df is None or df.empty: return df
     df = df.copy()
     df.columns.name = None
     df.index.name = None
@@ -186,6 +190,36 @@ ul[role="listbox"] li { color: #000000 !important; font-weight: bold !important;
 [data-testid="stFileUploadDropzone"] * { color: #000000 !important; -webkit-text-fill-color: #000000 !important; font-weight: 800 !important; }
 [data-testid="stSidebar"] button { background-color: #475569 !important; border: 1px solid #94A3B8 !important; color: #FFFFFF !important; font-weight: bold !important; border-radius: 6px; }
 [data-testid="stSidebar"] button:hover { background-color: #64748B !important; border-color: #CBD5E1 !important; }
+
+/* UX: Sekmelerin (Tabs) Modern, Pill-Shaped Tasarımı */
+div[data-testid="stTabs"] {
+    gap: 8px;
+    margin-bottom: 20px;
+}
+div[data-testid="stTabs"] button {
+    background-color: #f1f5f9;
+    border-radius: 8px !important;
+    padding: 10px 24px;
+    font-weight: 700;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+    border-bottom: none;
+    transition: all 0.2s ease-in-out;
+}
+div[data-testid="stTabs"] button[aria-selected="true"] {
+    background-color: #064e3b !important;
+    color: #fde68a !important;
+    border-color: #064e3b;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+div[data-testid="stTabs"] button:hover {
+    background-color: #e2e8f0;
+    color: #0f172a;
+}
+div[data-testid="stTabs"] button[aria-selected="true"]:hover {
+    background-color: #022c22 !important;
+    color: #ffffff !important;
+}
 
 /* İndirme Butonları Tasarımı */
 [data-testid="stDownloadButton"] button { background-color: #064e3b !important; color: #fde68a !important; border: 2px solid #022c22 !important; font-weight: 800 !important; border-radius: 8px !important; width: 100%; }
@@ -223,7 +257,6 @@ if not st.session_state['logged_in']:
         with st.form("login_form"):
             email_input = st.text_input("Corporate Email", placeholder="name.surname@opella.com").strip().lower()
             if st.form_submit_button("Secure Login", use_container_width=True):
-                # GÜVENLİK VE MAILTO KONTROLÜ
                 if not (email_input.endswith("@sanofi.com") or email_input.endswith("@opella.com")):
                     st.error("🔒 Security Policy: Only @sanofi.com or @opella.com domains are allowed.")
                 else:
@@ -601,13 +634,12 @@ elif page == "🏠 Analysis Home":
                     "1. Top 10 3rd Party Aging", "2. Top 10 ICO Aging", "3. Top 10 Employee Aging", "4. GL Breakdown", "5. Reconciliation Status", "6. Missing FBL1N Items (HFO Advisory)"
                 ], display_unit, eur_rate)
                 st.download_button("📄 Download HTML Report", html_out, f"Opella_Dashboard_{display_unit}.html", "text/html", use_container_width=True)
-                
+            
             with col_ex2:
                 st.markdown("<div style='background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:16px;min-height:110px;'><b>📊 Detailed Excel Report</b><br/><span style='font-size:.75rem;color:#6B7280;'>Full Excel pack with Opella formatting.</span></div>", unsafe_allow_html=True)
                 
-                # Excel verisi önce güvenle buffer'a (hafızaya) yazılır
-                output_full = io.BytesIO()
-                with pd.ExcelWriter(output_full, engine='xlsxwriter') as writer:
+                try:
+                    # VERİ HAZIRLIĞI EXCEL MOTORUNDAN ÖNCE YAPILIR
                     def clean_and_total(df_in, numeric_cols, label_col='Vendor'):
                         if df_in is None or df_in.empty: return pd.DataFrame()
                         d = df_in.copy().reset_index() if df_in.index.name else df_in.copy()
@@ -616,7 +648,7 @@ elif page == "🏠 Analysis Home":
                         for c in numeric_cols:
                             if c in d.columns: d[c] = (d[c]/scalar).round(0) if d[c].dtype != 'object' else d[c]
                         return append_totals(d, numeric_cols, label_col)
-                    
+
                     ex_3rd  = clean_and_total(ap_full_3rd, buckets + ['Total'], 'Vendor')
                     ex_ico  = clean_and_total(ap_full_ico, buckets + ['Total'], 'Vendor')
                     ex_emp  = clean_and_total(ap_full_emp, buckets + ['Total'], 'Vendor')
@@ -626,27 +658,30 @@ elif page == "🏠 Analysis Home":
                     ex_rec  = clean_and_total(rec_df, ['F.01 Balance', 'FBL1N Balance', 'Difference'], 'GL Account')
                     ex_gap  = clean_and_total(gap_df, ['F.01 Balance'], 'GL Account')
                     
-                    if not ex_3rd.empty: format_excel_sheet(writer, ex_3rd, '3rd Party Aging')
-                    if not ex_ico.empty: format_excel_sheet(writer, ex_ico, 'ICO Aging')
-                    if not ex_emp.empty: format_excel_sheet(writer, ex_emp, 'Employee Aging')
-                    if not ex_prep.empty: format_excel_sheet(writer, ex_prep, 'Prepayment Detail')
-                    if not ex_deb.empty: format_excel_sheet(writer, ex_deb, 'Debit Balance Detail')
-                    format_excel_sheet(writer, ex_gl, 'GL Breakdown')
-                    format_excel_sheet(writer, ex_rec, 'Reconciliation Audit')
-                    if not ex_gap.empty: format_excel_sheet(writer, ex_gap, 'Recon - Missing FBL1N')
-                    format_excel_sheet(writer, df.head(5000), 'Raw Classified Sample')
-                
-                # Excel tamamen kapatıldıktan (with bloğu bittikten) SONRA veriyi butona bağla
-                excel_data = output_full.getvalue()
-                
-                st.download_button(
-                    label="📥 Download Excel Pack", 
-                    data=excel_data, 
-                    file_name=f"Opella_AP_Dashboard_{display_unit}_{datetime.now().strftime('%Y%m%d')}.xlsx", 
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True, 
-                    type="primary"
-                )
+                    output_full = io.BytesIO()
+                    with pd.ExcelWriter(output_full, engine='xlsxwriter') as writer:
+                        format_excel_sheet(writer, ex_3rd, '3rd Party Aging')
+                        format_excel_sheet(writer, ex_ico, 'ICO Aging')
+                        format_excel_sheet(writer, ex_emp, 'Employee Aging')
+                        format_excel_sheet(writer, ex_prep, 'Prepayment Detail')
+                        format_excel_sheet(writer, ex_deb, 'Debit Balance Detail')
+                        format_excel_sheet(writer, ex_gl, 'GL Breakdown')
+                        format_excel_sheet(writer, ex_rec, 'Reconciliation Audit')
+                        format_excel_sheet(writer, ex_gap, 'Recon - Missing FBL1N')
+                        format_excel_sheet(writer, df.head(5000), 'Raw Classified Sample')
+                    
+                    excel_data = output_full.getvalue()
+                    
+                    st.download_button(
+                        label="📥 Download Excel Pack", 
+                        data=excel_data, 
+                        file_name=f"Opella_AP_Dashboard_{display_unit}_{datetime.now().strftime('%Y%m%d')}.xlsx", 
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True, 
+                        type="primary"
+                    )
+                except Exception as e:
+                    st.error(f"Excel creation encountered an error: {str(e)}")
 
     elif not uploaded_file or not tb_file:
         st.info("👆 Please upload the required FBL1N and F.01 Trial Balance reports from the sidebar to begin.")
