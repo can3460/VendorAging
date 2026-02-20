@@ -16,7 +16,7 @@ except ImportError:
 # 1. MASTER CONFIGURATION & ADMIN SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella", layout="wide", page_icon="🛡️")
-VERSION_NO = "v43.0"
+VERSION_NO = "v44.0"
 MASTER_ADMIN = "can.adiguzel@sanofi.com"
 USER_DB = "users.xlsx"
 
@@ -27,9 +27,14 @@ if 'analysis_run' not in st.session_state: st.session_state['analysis_run'] = Fa
 
 def load_users():
     if not os.path.exists(USER_DB):
-        df = pd.DataFrame([{"email": MASTER_ADMIN, "role": "admin"}])
-        df.to_excel(USER_DB, index=False)
-        return df
+        # ÖN TANIMLI MAİLLER EKLENDİ
+        default_users = pd.DataFrame([
+            {"email": MASTER_ADMIN, "role": "admin"},
+            {"email": "can.adiguzel@opella.com", "role": "admin"},
+            {"email": "admin@opella.com", "role": "admin"}
+        ])
+        default_users.to_excel(USER_DB, index=False)
+        return default_users
     df = pd.read_excel(USER_DB)
     df.columns = [str(c).lower().strip() for c in df.columns]
     return df
@@ -122,8 +127,7 @@ def generate_html_report(dfs, titles, display_curr, rate):
     return html
 
 def format_excel_sheet(writer, df, sheet_name):
-    df = df.replace([np.inf, -np.inf], np.nan).fillna("")
-    
+    df = df.replace([np.inf, -np.inf], np.nan)
     df.to_excel(writer, sheet_name=sheet_name, index=False)
     workbook = writer.book
     worksheet = writer.sheets[sheet_name]
@@ -200,8 +204,8 @@ ul[role="listbox"] li { color: #000000 !important; font-weight: bold !important;
 .kpi-value { font-size:1.6rem; font-weight:800; color:#0F172A; }
 .kpi-sub { font-size:0.7rem; color:#64748B; margin-top:5px; }
 
-/* Tabloların Genişliği %85 Olarak Ayarlandı */
-[data-testid="stDataFrame"] { width: 85% !important; margin: 0 auto; }
+/* Fligran sorununu çözen doğal genişlik ayarlaması */
+[data-testid="stDataFrame"] { width: 100% !important; margin: 0 auto; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -217,13 +221,22 @@ if not st.session_state['logged_in']:
             
         st.markdown("<h2 style='text-align: center; color:#333;'>AP Analyzing Suite</h2>", unsafe_allow_html=True)
         with st.form("login_form"):
-            email_input = st.text_input("Corporate Email", placeholder="name.surname@sanofi.com").strip().lower()
+            email_input = st.text_input("Corporate Email", placeholder="name.surname@opella.com").strip().lower()
             if st.form_submit_button("Secure Login", use_container_width=True):
-                users = load_users()
-                if 'email' in users.columns and email_input in users['email'].values:
-                    st.session_state.update({'logged_in': True, 'user_name': email_input.split('@')[0].replace('.',' ').title(), 'user_email': email_input})
-                    st.rerun()
-                else: st.error("Unauthorized access. Please contact System Administrator.")
+                # GÜVENLİK VE MAILTO KONTROLÜ
+                if not (email_input.endswith("@sanofi.com") or email_input.endswith("@opella.com")):
+                    st.error("🔒 Security Policy: Only @sanofi.com or @opella.com domains are allowed.")
+                else:
+                    users = load_users()
+                    if 'email' in users.columns and email_input in users['email'].values:
+                        st.session_state.update({'logged_in': True, 'user_name': email_input.split('@')[0].replace('.',' ').title(), 'user_email': email_input})
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ Your email is not registered in the authorized users list.")
+                        subject = "AP Analyzing Suite - Access Request"
+                        body = f"Hello Admin,%0D%0A%0D%0AI would like to request access to the AP Analyzing Suite.%0D%0A%0D%0AMy Email: {email_input}%0D%0A%0D%0AThank you."
+                        mailto_link = f"mailto:{MASTER_ADMIN}?subject={subject}&body={body}"
+                        st.markdown(f'<a href="{mailto_link}" target="_blank" style="display: block; text-align: center; padding: 10px 20px; background-color: #064e3b; color: #fde68a; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 10px;">📧 Request Access via Outlook</a>', unsafe_allow_html=True)
     st.stop()
 
 # ==========================================
@@ -247,7 +260,6 @@ with st.sidebar:
         uploaded_file = st.file_uploader("1. FBL1N Report (Mandatory)", type=["xlsx", "xls", "csv"])
         tb_file = st.file_uploader("2. Trial Balance F.01 (Mandatory)", type=["xlsx", "xls", "csv"])
         
-        # PARA BİRİMLERİ ASYA (APAC) ÜLKELERİNİ KAPSAYACAK ŞEKİLDE GENİŞLETİLDİ
         currency_list = ["TRY", "EUR", "USD", "GBP", "EGP", "AUD", "JPY", "VND", "MYR", "SGD", "KRW", "TND", "CNY", "INR", "THB"]
         currency = st.selectbox("Base Currency", currency_list, index=0)
         
@@ -420,7 +432,6 @@ elif page == "🏠 Analysis Home":
         ico_total = df[df['Segment'] == 'ICO']['Amount'].sum()
         emp_total = df[df['Segment'] == 'Employee']['Amount'].sum()
 
-        # KPI BİRİMLERİNDE 'k' PREFİXİ GERİ EKLENDİ (Örn: kEGP, kEUR)
         st.markdown(f"""
         <div class="kpi-row">
           <div class="kpi-card blue">
@@ -465,7 +476,7 @@ elif page == "🏠 Analysis Home":
                 disp_aging['Amount Scaled'] = disp_aging['Amount'].apply(lambda x: sc(x))
                 disp_aging = append_totals(disp_aging, ['Amount Scaled'], label_col='Bucket')
                 disp_aging = prepare_for_display(disp_aging, ['Amount Scaled'])
-                st.dataframe(disp_aging[['Bucket', 'Amount Scaled']].style.format({'Amount Scaled': "{:,.0f}"}), hide_index=True)
+                st.dataframe(disp_aging[['Bucket', 'Amount Scaled']].style.format({'Amount Scaled': "{:,.0f}"}), use_container_width=True, hide_index=True)
             with c2:
                 fig = px.bar(aging_summary, x='Bucket', y=aging_summary['Amount']/scalar, text_auto=',.0f', title=f"Aging Distribution ({display_unit})", color='Bucket', color_discrete_sequence=px.colors.qualitative.Pastel)
                 fig.update_traces(textposition='outside')
@@ -495,13 +506,13 @@ elif page == "🏠 Analysis Home":
 
             t_3rd, t_ico, t_emp = st.tabs(["🏭 3rd Party (40000)", "🔗 Intercompany ICO (42905)", "👤 Employee (42006)"])
             with t_3rd:
-                if not top10_3rd.empty: st.dataframe(top10_3rd.style.format({c: "{:,.0f}" for c in buckets+['Total']}), hide_index=True)
+                if not top10_3rd.empty: st.dataframe(top10_3rd.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
                 else: st.info("No 3rd Party balances found.")
             with t_ico:
-                if not top10_ico.empty: st.dataframe(top10_ico.style.format({c: "{:,.0f}" for c in buckets+['Total']}), hide_index=True)
+                if not top10_ico.empty: st.dataframe(top10_ico.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
                 else: st.info("No Intercompany balances found.")
             with t_emp:
-                if not top10_emp.empty: st.dataframe(top10_emp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), hide_index=True)
+                if not top10_emp.empty: st.dataframe(top10_emp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
                 else: st.info("No Employee balances found.")
 
         with tab2:
@@ -517,7 +528,7 @@ elif page == "🏠 Analysis Home":
                 for col in buckets + ['Total']: prep_disp[col] = prep_disp[col].apply(lambda x: sc(x))
                 prep_disp = append_totals(prep_disp, buckets + ['Total'], label_col='Vendor')
                 prep_disp = prepare_for_display(prep_disp, buckets + ['Total'])
-                st.dataframe(prep_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), hide_index=True)
+                st.dataframe(prep_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
 
         with tab3:
             st.markdown(f"### Debit Balance Details (Net Positive Vendors) - ({display_unit})")
@@ -534,7 +545,7 @@ elif page == "🏠 Analysis Home":
                 debit_disp = prepare_for_display(debit_disp, buckets + ['Total'])
                 
                 st.markdown(f"**Top 10 Vendors in Debit Position**")
-                st.dataframe(debit_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), hide_index=True)
+                st.dataframe(debit_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
 
         with tab4:
             st.markdown(f"### Detailed GL Breakdown ({display_unit})")
@@ -546,7 +557,7 @@ elif page == "🏠 Analysis Home":
             gl_disp = append_totals(gl_disp, buckets + ['Total Balance'], label_col='SOLAR Code')
             gl_disp.loc[gl_disp['SOLAR Code'] == 'TOTAL', 'GL'] = '' 
             gl_disp = prepare_for_display(gl_disp, buckets + ['Total Balance'])
-            st.dataframe(gl_disp.style.format({c: "{:,.0f}" for c in buckets+['Total Balance']}), hide_index=True)
+            st.dataframe(gl_disp.style.format({c: "{:,.0f}" for c in buckets+['Total Balance']}), use_container_width=True, hide_index=True)
 
         with tab5:
             st.markdown(f"### AP Sub-Ledger GLs vs Trial Balance ({display_unit})")
@@ -562,7 +573,7 @@ elif page == "🏠 Analysis Home":
                 
                 st.dataframe(disp_rec.style.format({c: "{:,.0f}" for c in ['F.01 Balance', 'FBL1N Balance', 'Difference']})
                              .applymap(lambda x: 'background-color: #dcfce7; color: #065f46; font-weight: bold;' if x == '✅ Matched' else ('background-color: #fee2e2; color: #991b1b; font-weight: bold;' if x == '⚠️ Mismatch' else ''), subset=['Status']), 
-                             hide_index=True)
+                             use_container_width=True, hide_index=True)
                              
                 gap_df = res['gap_df']
                 if not gap_df.empty:
@@ -575,7 +586,7 @@ elif page == "🏠 Analysis Home":
                     disp_gap = append_totals(disp_gap, ['F.01 Balance'], label_col='GL Account')
                     disp_gap.loc[disp_gap['GL Account'] == 'TOTAL', ['Description', 'SOLAR Group']] = ''
                     disp_gap = prepare_for_display(disp_gap, ['F.01 Balance'])
-                    st.dataframe(disp_gap.style.format({'F.01 Balance': "{:,.0f}"}), hide_index=True)
+                    st.dataframe(disp_gap.style.format({'F.01 Balance': "{:,.0f}"}), use_container_width=True, hide_index=True)
 
         with tab6:
             st.markdown("### 📥 Report Export Hub")
@@ -594,47 +605,48 @@ elif page == "🏠 Analysis Home":
             with col_ex2:
                 st.markdown("<div style='background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:16px;min-height:110px;'><b>📊 Detailed Excel Report</b><br/><span style='font-size:.75rem;color:#6B7280;'>Full Excel pack with Opella formatting.</span></div>", unsafe_allow_html=True)
                 
-                try:
-                    output_full = io.BytesIO()
-                    # HATAYA SEBEP OLAN KOD TAMAMEN TEMİZLENDİ, ARTIK SADECE EXCELWRITER VAR
-                    with pd.ExcelWriter(output_full, engine='xlsxwriter') as writer:
-                        def clean_and_total(df_in, numeric_cols, label_col='Vendor'):
-                            if df_in is None or df_in.empty: return pd.DataFrame()
-                            d = df_in.copy().reset_index() if df_in.index.name else df_in.copy()
-                            sort_c = next((c for c in ['Total', 'Total Balance', 'F.01 Balance', 'Difference'] if c in d.columns), None)
-                            if sort_c: d = d.sort_values(sort_c, key=abs, ascending=False)
-                            for c in numeric_cols:
-                                if c in d.columns: d[c] = (d[c]/scalar).round(0) if d[c].dtype != 'object' else d[c]
-                            return append_totals(d, numeric_cols, label_col)
-                        
-                        ex_3rd  = clean_and_total(ap_full_3rd, buckets + ['Total'], 'Vendor')
-                        ex_ico  = clean_and_total(ap_full_ico, buckets + ['Total'], 'Vendor')
-                        ex_emp  = clean_and_total(ap_full_emp, buckets + ['Total'], 'Vendor')
-                        ex_prep = clean_and_total(prep_full_df, buckets + ['Total'], 'Vendor') if not prep_df.empty else pd.DataFrame()
-                        ex_deb  = clean_and_total(debit_full_df, buckets + ['Total'], 'Vendor') if not debit_df.empty else pd.DataFrame()
-                        ex_gl   = clean_and_total(gl_pivot.reset_index(), buckets + ['Total Balance'], 'SOLAR Code')
-                        ex_rec  = clean_and_total(rec_df, ['F.01 Balance', 'FBL1N Balance', 'Difference'], 'GL Account')
-                        ex_gap  = clean_and_total(gap_df, ['F.01 Balance'], 'GL Account')
-                        
-                        if not ex_3rd.empty: format_excel_sheet(writer, ex_3rd, '3rd Party Aging')
-                        if not ex_ico.empty: format_excel_sheet(writer, ex_ico, 'ICO Aging')
-                        if not ex_emp.empty: format_excel_sheet(writer, ex_emp, 'Employee Aging')
-                        if not ex_prep.empty: format_excel_sheet(writer, ex_prep, 'Prepayment Detail')
-                        if not ex_deb.empty: format_excel_sheet(writer, ex_deb, 'Debit Balance Detail')
-                        format_excel_sheet(writer, ex_gl, 'GL Breakdown')
-                        format_excel_sheet(writer, ex_rec, 'Reconciliation Audit')
-                        if not ex_gap.empty: format_excel_sheet(writer, ex_gap, 'Recon - Missing FBL1N')
-                        format_excel_sheet(writer, df.head(5000), 'Raw Classified Sample')
-                        
-                    st.download_button(
-                        "📥 Download Excel Pack", 
-                        output_full.getvalue(), 
-                        f"Opella_AP_Dashboard_{display_unit}_{datetime.now().strftime('%Y%m%d')}.xlsx", 
-                        use_container_width=True, 
-                        type="primary"
-                    )
-                except Exception as e:
-                    st.error(f"Excel oluşturulurken bir hata oluştu: {e}")
+                # Excel verisi önce güvenle buffer'a (hafızaya) yazılır
+                output_full = io.BytesIO()
+                with pd.ExcelWriter(output_full, engine='xlsxwriter') as writer:
+                    def clean_and_total(df_in, numeric_cols, label_col='Vendor'):
+                        if df_in is None or df_in.empty: return pd.DataFrame()
+                        d = df_in.copy().reset_index() if df_in.index.name else df_in.copy()
+                        sort_c = next((c for c in ['Total', 'Total Balance', 'F.01 Balance', 'Difference'] if c in d.columns), None)
+                        if sort_c: d = d.sort_values(sort_c, key=abs, ascending=False)
+                        for c in numeric_cols:
+                            if c in d.columns: d[c] = (d[c]/scalar).round(0) if d[c].dtype != 'object' else d[c]
+                        return append_totals(d, numeric_cols, label_col)
+                    
+                    ex_3rd  = clean_and_total(ap_full_3rd, buckets + ['Total'], 'Vendor')
+                    ex_ico  = clean_and_total(ap_full_ico, buckets + ['Total'], 'Vendor')
+                    ex_emp  = clean_and_total(ap_full_emp, buckets + ['Total'], 'Vendor')
+                    ex_prep = clean_and_total(prep_full_df, buckets + ['Total'], 'Vendor') if not prep_df.empty else pd.DataFrame()
+                    ex_deb  = clean_and_total(debit_full_df, buckets + ['Total'], 'Vendor') if not debit_df.empty else pd.DataFrame()
+                    ex_gl   = clean_and_total(gl_pivot.reset_index(), buckets + ['Total Balance'], 'SOLAR Code')
+                    ex_rec  = clean_and_total(rec_df, ['F.01 Balance', 'FBL1N Balance', 'Difference'], 'GL Account')
+                    ex_gap  = clean_and_total(gap_df, ['F.01 Balance'], 'GL Account')
+                    
+                    if not ex_3rd.empty: format_excel_sheet(writer, ex_3rd, '3rd Party Aging')
+                    if not ex_ico.empty: format_excel_sheet(writer, ex_ico, 'ICO Aging')
+                    if not ex_emp.empty: format_excel_sheet(writer, ex_emp, 'Employee Aging')
+                    if not ex_prep.empty: format_excel_sheet(writer, ex_prep, 'Prepayment Detail')
+                    if not ex_deb.empty: format_excel_sheet(writer, ex_deb, 'Debit Balance Detail')
+                    format_excel_sheet(writer, ex_gl, 'GL Breakdown')
+                    format_excel_sheet(writer, ex_rec, 'Reconciliation Audit')
+                    if not ex_gap.empty: format_excel_sheet(writer, ex_gap, 'Recon - Missing FBL1N')
+                    format_excel_sheet(writer, df.head(5000), 'Raw Classified Sample')
+                
+                # Excel tamamen kapatıldıktan (with bloğu bittikten) SONRA veriyi butona bağla
+                excel_data = output_full.getvalue()
+                
+                st.download_button(
+                    label="📥 Download Excel Pack", 
+                    data=excel_data, 
+                    file_name=f"Opella_AP_Dashboard_{display_unit}_{datetime.now().strftime('%Y%m%d')}.xlsx", 
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True, 
+                    type="primary"
+                )
 
     elif not uploaded_file or not tb_file:
         st.info("👆 Please upload the required FBL1N and F.01 Trial Balance reports from the sidebar to begin.")
