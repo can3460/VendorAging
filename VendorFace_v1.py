@@ -16,7 +16,7 @@ except ImportError:
 # 1. MASTER CONFIGURATION & ADMIN SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella", layout="wide", page_icon="🛡️")
-VERSION_NO = "v45.0"
+VERSION_NO = "v46.0"
 MASTER_ADMIN = "can.adiguzel@sanofi.com"
 USER_DB = "users.xlsx"
 
@@ -125,26 +125,26 @@ def generate_html_report(dfs, titles, display_curr, rate):
     html += "</body></html>"
     return html
 
+# ÇÖKMEYİ ENGELLEYEN SABİT GENİŞLİKLİ GÜVENLİ EXCEL MOTORU
 def format_excel_sheet(writer, df, sheet_name):
-    # BOŞ TABLO KORUMASI: Çökmeyi engeller
     if df is None or df.empty:
-        df = pd.DataFrame({'Data': ['No data available']})
+        df = pd.DataFrame({'Data': ['No data available in this category.']})
         
     df = df.replace([np.inf, -np.inf], np.nan).fillna("")
     df.to_excel(writer, sheet_name=sheet_name, index=False)
     workbook = writer.book
     worksheet = writer.sheets[sheet_name]
     
-    header_format = workbook.add_format({'bold': True, 'font_color': '#fde68a', 'bg_color': '#064e3b', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
+    header_format = workbook.add_format({'bold': True, 'font_color': '#fde68a', 'bg_color': '#064e3b', 'border': 1})
     cell_format = workbook.add_format({'border': 1})
     num_format = workbook.add_format({'border': 1, 'num_format': '#,##0'})
     total_row_format = workbook.add_format({'bold': True, 'font_color': '#fde68a', 'bg_color': '#064e3b', 'border': 1, 'num_format': '#,##0'})
     
+    # Tüm sütunlar için sabit güvenli genişlik atandı (Crash İptali)
+    worksheet.set_column(0, max(len(df.columns) - 1, 0), 20)
+    
     for col_num, value in enumerate(df.columns.values):
         worksheet.write(0, col_num, value, header_format)
-        column_len = max(df[value].astype(str).map(len).max(), len(str(value))) + 2
-        is_numeric = pd.to_numeric(df[value].replace('', np.nan), errors='coerce').notna().any()
-        worksheet.set_column(col_num, col_num, min(column_len, 25) if is_numeric else min(column_len, 45))
         
     for row_num in range(len(df)):
         is_total_row = ('TOTAL' in df.iloc[row_num].values)
@@ -238,7 +238,6 @@ div[data-testid="stTabs"] button[aria-selected="true"]:hover {
 .kpi-value { font-size:1.6rem; font-weight:800; color:#0F172A; }
 .kpi-sub { font-size:0.7rem; color:#64748B; margin-top:5px; }
 
-/* Fligran sorununu çözen doğal genişlik ayarlaması */
 [data-testid="stDataFrame"] { width: 100% !important; margin: 0 auto; }
 </style>
 """, unsafe_allow_html=True)
@@ -497,6 +496,33 @@ elif page == "🏠 Analysis Home":
 
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 Aging Analytics", "💳 Prepayments", "⚖️ Debit Balances", "🏦 GL Breakdown", "🔄 F.01 Reconciliation", "📤 Export Center"])
 
+        # Dataframe hazırlıkları Excel için burada yapılıyor (Eksiksiz tam veriler)
+        def build_full_aging(segment_df):
+            if segment_df.empty: return pd.DataFrame()
+            full_df = segment_df.pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
+            full_df['Total'] = full_df.sum(axis=1)
+            return full_df
+
+        df_3rd = payables_df[payables_df['Segment'] == '3rd Party']
+        df_ico = payables_df[payables_df['Segment'] == 'ICO']
+        df_emp = payables_df[payables_df['Segment'] == 'Employee']
+
+        # EKRAN (DASHBOARD) İÇİN TOP 10, EXCEL İÇİN İSE FULL_DF KULLANILACAK
+        ap_full_3rd = build_full_aging(df_3rd)
+        ap_full_ico = build_full_aging(df_ico)
+        ap_full_emp = build_full_aging(df_emp)
+
+        def get_top10(full_df):
+            if full_df.empty: return pd.DataFrame()
+            t10 = full_df.sort_values('Total', key=abs, ascending=False).head(10).reset_index()
+            for c in buckets + ['Total']: t10[c] = t10[c].apply(lambda x: sc(x))
+            t10 = append_totals(t10, buckets + ['Total'], label_col='Vendor')
+            return prepare_for_display(t10, buckets + ['Total'])
+
+        top10_3rd = get_top10(ap_full_3rd)
+        top10_ico = get_top10(ap_full_ico)
+        top10_emp = get_top10(ap_full_emp)
+
         with tab1:
             st.markdown(f"### Payables Aging Summary ({display_unit})")
             aging_summary = payables_df.groupby('Bucket')['Amount'].sum().abs().reset_index()
@@ -518,24 +544,6 @@ elif page == "🏠 Analysis Home":
 
             st.divider()
             st.markdown(f"### Top 10 Vendor Aging by Segment ({display_unit})")
-            
-            def build_top10(segment_df):
-                if segment_df.empty: return pd.DataFrame(), pd.DataFrame()
-                full_df = segment_df.pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
-                full_df['Total'] = full_df.sum(axis=1)
-                t10 = full_df.sort_values('Total', key=abs, ascending=False).head(10).reset_index()
-                for c in buckets + ['Total']: t10[c] = t10[c].apply(lambda x: sc(x))
-                t10 = append_totals(t10, buckets + ['Total'], label_col='Vendor')
-                t10 = prepare_for_display(t10, buckets + ['Total'])
-                return full_df, t10
-
-            df_3rd = payables_df[payables_df['Segment'] == '3rd Party']
-            df_ico = payables_df[payables_df['Segment'] == 'ICO']
-            df_emp = payables_df[payables_df['Segment'] == 'Employee']
-
-            ap_full_3rd, top10_3rd = build_top10(df_3rd)
-            ap_full_ico, top10_ico = build_top10(df_ico)
-            ap_full_emp, top10_emp = build_top10(df_emp)
 
             t_3rd, t_ico, t_emp = st.tabs(["🏭 3rd Party (40000)", "🔗 Intercompany ICO (42905)", "👤 Employee (42006)"])
             with t_3rd:
@@ -595,6 +603,8 @@ elif page == "🏠 Analysis Home":
         with tab5:
             st.markdown(f"### AP Sub-Ledger GLs vs Trial Balance ({display_unit})")
             rec_df = res['rec_df'].copy()
+            gap_df = res['gap_df'].copy()
+            
             if rec_df.empty:
                 st.warning("No Trial Balance data uploaded, or no overlapping accounts found.")
             else:
@@ -608,7 +618,6 @@ elif page == "🏠 Analysis Home":
                              .applymap(lambda x: 'background-color: #dcfce7; color: #065f46; font-weight: bold;' if x == '✅ Matched' else ('background-color: #fee2e2; color: #991b1b; font-weight: bold;' if x == '⚠️ Mismatch' else ''), subset=['Status']), 
                              use_container_width=True, hide_index=True)
                              
-                gap_df = res['gap_df']
                 if not gap_df.empty:
                     st.divider()
                     st.markdown("#### 🚨 Advisory Note for Head of Finance Operations (HFO)")
@@ -638,50 +647,56 @@ elif page == "🏠 Analysis Home":
             with col_ex2:
                 st.markdown("<div style='background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:16px;min-height:110px;'><b>📊 Detailed Excel Report</b><br/><span style='font-size:.75rem;color:#6B7280;'>Full Excel pack with Opella formatting.</span></div>", unsafe_allow_html=True)
                 
-                try:
-                    # VERİ HAZIRLIĞI EXCEL MOTORUNDAN ÖNCE YAPILIR
-                    def clean_and_total(df_in, numeric_cols, label_col='Vendor'):
-                        if df_in is None or df_in.empty: return pd.DataFrame()
-                        d = df_in.copy().reset_index() if df_in.index.name else df_in.copy()
-                        sort_c = next((c for c in ['Total', 'Total Balance', 'F.01 Balance', 'Difference'] if c in d.columns), None)
-                        if sort_c: d = d.sort_values(sort_c, key=abs, ascending=False)
-                        for c in numeric_cols:
-                            if c in d.columns: d[c] = (d[c]/scalar).round(0) if d[c].dtype != 'object' else d[c]
-                        return append_totals(d, numeric_cols, label_col)
+                # RECONCILIATION BİRLEŞTİRME (FBL1N'DE OLMAYANLAR ANA RAPORA EKLENİYOR)
+                if not gap_df.empty:
+                    gap_excel = gap_df.copy()
+                    gap_excel['FBL1N Balance'] = 0
+                    gap_excel['Difference'] = gap_excel['F.01 Balance']
+                    gap_excel['Status'] = '🚨 Missing in FBL1N'
+                    full_rec_excel = pd.concat([rec_df, gap_excel], ignore_index=True)
+                else:
+                    full_rec_excel = rec_df.copy()
 
-                    ex_3rd  = clean_and_total(ap_full_3rd, buckets + ['Total'], 'Vendor')
-                    ex_ico  = clean_and_total(ap_full_ico, buckets + ['Total'], 'Vendor')
-                    ex_emp  = clean_and_total(ap_full_emp, buckets + ['Total'], 'Vendor')
-                    ex_prep = clean_and_total(prep_full_df, buckets + ['Total'], 'Vendor') if not prep_df.empty else pd.DataFrame()
-                    ex_deb  = clean_and_total(debit_full_df, buckets + ['Total'], 'Vendor') if not debit_df.empty else pd.DataFrame()
-                    ex_gl   = clean_and_total(gl_pivot.reset_index(), buckets + ['Total Balance'], 'SOLAR Code')
-                    ex_rec  = clean_and_total(rec_df, ['F.01 Balance', 'FBL1N Balance', 'Difference'], 'GL Account')
-                    ex_gap  = clean_and_total(gap_df, ['F.01 Balance'], 'GL Account')
-                    
-                    output_full = io.BytesIO()
-                    with pd.ExcelWriter(output_full, engine='xlsxwriter') as writer:
-                        format_excel_sheet(writer, ex_3rd, '3rd Party Aging')
-                        format_excel_sheet(writer, ex_ico, 'ICO Aging')
-                        format_excel_sheet(writer, ex_emp, 'Employee Aging')
-                        format_excel_sheet(writer, ex_prep, 'Prepayment Detail')
-                        format_excel_sheet(writer, ex_deb, 'Debit Balance Detail')
-                        format_excel_sheet(writer, ex_gl, 'GL Breakdown')
-                        format_excel_sheet(writer, ex_rec, 'Reconciliation Audit')
-                        format_excel_sheet(writer, ex_gap, 'Recon - Missing FBL1N')
-                        format_excel_sheet(writer, df.head(5000), 'Raw Classified Sample')
-                    
-                    excel_data = output_full.getvalue()
-                    
-                    st.download_button(
-                        label="📥 Download Excel Pack", 
-                        data=excel_data, 
-                        file_name=f"Opella_AP_Dashboard_{display_unit}_{datetime.now().strftime('%Y%m%d')}.xlsx", 
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True, 
-                        type="primary"
-                    )
-                except Exception as e:
-                    st.error(f"Excel creation encountered an error: {str(e)}")
+                # VERİ HAZIRLIĞI
+                def clean_and_total_full(df_in, numeric_cols, label_col='Vendor'):
+                    if df_in is None or df_in.empty: return pd.DataFrame()
+                    d = df_in.copy().reset_index() if df_in.index.name else df_in.copy()
+                    sort_c = next((c for c in ['Total', 'Total Balance', 'F.01 Balance', 'Difference'] if c in d.columns), None)
+                    if sort_c: d = d.sort_values(sort_c, key=abs, ascending=False)
+                    for c in numeric_cols:
+                        if c in d.columns: d[c] = (d[c]/scalar).round(0) if d[c].dtype != 'object' else d[c]
+                    return append_totals(d, numeric_cols, label_col)
+
+                # EXCEL İÇİN TOP 10 DEĞİL, FULL VERİ KULLANILIYOR
+                ex_3rd  = clean_and_total_full(ap_full_3rd, buckets + ['Total'], 'Vendor')
+                ex_ico  = clean_and_total_full(ap_full_ico, buckets + ['Total'], 'Vendor')
+                ex_emp  = clean_and_total_full(ap_full_emp, buckets + ['Total'], 'Vendor')
+                ex_prep = clean_and_total_full(prep_full_df, buckets + ['Total'], 'Vendor') if not prep_df.empty else pd.DataFrame()
+                ex_deb  = clean_and_total_full(debit_full_df, buckets + ['Total'], 'Vendor') if not debit_df.empty else pd.DataFrame()
+                ex_gl   = clean_and_total_full(gl_pivot.reset_index(), buckets + ['Total Balance'], 'SOLAR Code')
+                ex_rec  = clean_and_total_full(full_rec_excel, ['F.01 Balance', 'FBL1N Balance', 'Difference'], 'GL Account')
+                
+                output_full = io.BytesIO()
+                with pd.ExcelWriter(output_full, engine='xlsxwriter') as writer:
+                    format_excel_sheet(writer, ex_3rd, 'FULL 3rd Party Aging')
+                    format_excel_sheet(writer, ex_ico, 'FULL ICO Aging')
+                    format_excel_sheet(writer, ex_emp, 'FULL Employee Aging')
+                    format_excel_sheet(writer, ex_prep, 'FULL Prepayment Detail')
+                    format_excel_sheet(writer, ex_deb, 'FULL Debit Balance')
+                    format_excel_sheet(writer, ex_gl, 'GL Breakdown')
+                    format_excel_sheet(writer, ex_rec, 'Reconciliation Audit')
+                    format_excel_sheet(writer, df.head(5000), 'Raw Classified Sample')
+                
+                excel_data = output_full.getvalue()
+                
+                st.download_button(
+                    label="📥 Download Full Excel Data", 
+                    data=excel_data, 
+                    file_name=f"Opella_AP_FULL_Data_{display_unit}_{datetime.now().strftime('%Y%m%d')}.xlsx", 
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True, 
+                    type="primary"
+                )
 
     elif not uploaded_file or not tb_file:
         st.info("👆 Please upload the required FBL1N and F.01 Trial Balance reports from the sidebar to begin.")
