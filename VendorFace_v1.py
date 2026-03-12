@@ -1,667 +1,1017 @@
+"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          VendorFace v6.0 ULTIMATE                            ║
+║                   AP Intelligence Dashboard | Opella Finance                 ║
+║                  Perfect Engine + Stunning UX | Production Ready             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime
-import io
-import os
-import time
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from io import BytesIO
+import io, json, warnings, urllib.request, os, base64
+from datetime import datetime, date, timedelta
 
-try:
-    import yfinance as yf
-except ImportError:
-    pass
+warnings.filterwarnings("ignore")
 
-# ==========================================
-# 1. MASTER CONFIGURATION & ADMIN SETUP
-# ==========================================
-st.set_page_config(page_title="AP Analyzing Suite | Opella", layout="wide", page_icon="🛡️")
-VERSION_NO = "v47.0"
-MASTER_ADMIN = "can.adiguzel@sanofi.com"
-USER_DB = "users.xlsx"
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE CONFIG
+# ══════════════════════════════════════════════════════════════════════════════
+st.set_page_config(
+    page_title="VendorFace v6.0 | AP Intelligence",
+    page_icon="💎",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={'Get Help': None, 'Report a bug': None, 'About': "VendorFace v6.0 | Opella Finance"}
+)
 
-if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
-if 'view_currency' not in st.session_state: st.session_state['view_currency'] = "Local"
-if 'results' not in st.session_state: st.session_state['results'] = None
-if 'analysis_run' not in st.session_state: st.session_state['analysis_run'] = False
-
-def load_users():
-    if not os.path.exists(USER_DB):
-        default_users = pd.DataFrame([
-            {"email": MASTER_ADMIN, "role": "admin"},
-            {"email": "can.adiguzel@opella.com", "role": "admin"},
-            {"email": "admin@opella.com", "role": "admin"}
-        ])
-        default_users.to_excel(USER_DB, index=False)
-        return default_users
-    df = pd.read_excel(USER_DB)
-    df.columns = [str(c).lower().strip() for c in df.columns]
-    return df
-
-def add_user(new_email):
-    users = load_users()
-    new_email = new_email.strip().lower()
-    if 'email' in users.columns and new_email not in users['email'].values:
-        new_row = pd.DataFrame([{"email": new_email, "role": "user"}])
-        users = pd.concat([users, new_row], ignore_index=True)
-        users.to_excel(USER_DB, index=False)
-        return True
-    return False
-
-def remove_user(email_to_remove):
-    users = load_users()
-    if email_to_remove != MASTER_ADMIN:
-        users = users[users['email'] != email_to_remove]
-        users.to_excel(USER_DB, index=False)
-        return True
-    return False
-
-# ==========================================
-# 2. CORE ENGINE & FILE READERS
-# ==========================================
-def get_live_rate(base_currency):
-    if base_currency == "EUR": return 1.0
-    try:
-        ticker = yf.Ticker(f"EUR{base_currency}=X")
-        history = ticker.history(period="1d")
-        if not history.empty:
-            return float(history['Close'].iloc[-1])
-        return None
-    except Exception: 
-        return None
-
-def smart_read(file):
-    name = file.name.lower()
-    if name.endswith((".xlsx", ".xls")): 
-        return pd.read_excel(file)
-    raw = file.getvalue()
-    for enc in ["utf-8-sig", "utf-8", "iso-8859-9", "cp1254", "latin-1", "windows-1252"]:
-        try:
-            return pd.read_csv(io.BytesIO(raw), encoding=enc, sep=None, engine="python", on_bad_lines="skip")
-        except: continue
-    raise ValueError(f"Could not read '{file.name}'. Please ensure it is an Excel or UTF-8 CSV file.")
-
-def smart_parse_tb(file):
-    try:
-        df_tb = smart_read(file)
-        gl_name_map, gl_solar_map, gl_balance_map = {}, {}, {}
-        
-        acc_col = next((c for c in df_tb.columns if 'Account Number' in str(c) or 'G/L' in str(c) or 'Account' in str(c)), None)
-        name_col = next((c for c in df_tb.columns if 'Text' in str(c) or 'Description' in str(c)), None)
-        solar_col = next((c for c in df_tb.columns if any(x in str(c).lower() for x in ['financial', 'fs item', 'solar', 'group'])), None)
-        amt_col = next((c for c in df_tb.columns if any(x in str(c).lower() for x in ['total', 'balance', 'reporting'])), None)
-
-        if not acc_col or not amt_col: return {}, {}, {}
-
-        for _, row in df_tb.iterrows():
-            raw_val = str(row[acc_col]).strip()
-            clean_acc = raw_val.split('.')[0]
-            if clean_acc.isdigit() and len(clean_acc) >= 6:
-                gl_name_map[clean_acc] = str(row[name_col]).strip() if name_col and not pd.isna(row[name_col]) else "-"
-                gl_solar_map[clean_acc] = str(row[solar_col]).strip() if solar_col and not pd.isna(row[solar_col]) else "-"
-                gl_balance_map[clean_acc] = row[amt_col] if not pd.isna(row[amt_col]) else 0
-        return gl_name_map, gl_solar_map, gl_balance_map
-    except Exception as e: 
-        st.error(f"Error reading Trial Balance: {e}")
-        return {}, {}, {}
-
-def append_totals(df, numeric_cols, label_col='Vendor'):
-    if df is None or df.empty: return df
-    tot_dict = {c: df[c].sum() for c in numeric_cols if c in df.columns}
-    tot_dict[label_col] = 'TOTAL'
-    tot_df = pd.DataFrame([tot_dict])
-    return pd.concat([df, tot_df], ignore_index=True)
-
-def generate_html_report(dfs, titles, display_curr, rate):
-    html = f"<html><head><style>body{{font-family:sans-serif;padding:20px;}}h2{{color:#064e3b;border-bottom:2px solid #064e3b;padding-bottom:5px;}}table{{border-collapse:collapse;width:100%;margin-bottom:30px;font-size:12px;}}th{{background:#f1f5f9;padding:10px;border:1px solid #cbd5e1;text-align:right;}}td{{padding:8px;border:1px solid #cbd5e1;text-align:right;}}td:first-child, th:first-child{{text-align:left;font-weight:bold;}}</style></head><body>"
-    html += f"<h1>Opella AP Analyzing Suite</h1><p><b>Currency View:</b> {display_curr} | <b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M')} | <b>EUR Rate:</b> {rate:,.4f}</p>"
-    for df, title in zip(dfs, titles):
-        if df is not None and not df.empty:
-            html += f"<h2>{title}</h2>"
-            df_fmt = df.copy()
-            for col in df_fmt.select_dtypes(include=[np.number]).columns:
-                df_fmt[col] = df_fmt[col].apply(lambda x: f"{x:,.0f}" if not pd.isna(x) else "")
-            html += df_fmt.to_html(index=False)
-    html += "</body></html>"
-    return html
-
-# ==========================================
-# ÇÖKMEYİ ENGELLEYEN KURŞUN GEÇİRMEZ EXCEL MOTORU
-# ==========================================
-def format_excel_sheet(writer, df, sheet_name):
-    if df is None or df.empty:
-        df = pd.DataFrame({'Data': ['No data available in this category.']})
-        
-    df = df.copy()
-    
-    # Tarih formatlarındaki çakışmaları (timezone) temizle
-    for col in df.select_dtypes(include=['datetimetz']).columns:
-        df[col] = df[col].dt.tz_localize(None)
-        
-    # Infinity değerleri Pandas NaN yap, Excel'e na_rep ile boş bas
-    df = df.replace([np.inf, -np.inf], np.nan)
-    df.to_excel(writer, sheet_name=sheet_name, index=False, na_rep="")
-    
-    workbook = writer.book
-    worksheet = writer.sheets[sheet_name]
-    
-    header_format = workbook.add_format({'bold': True, 'font_color': '#fde68a', 'bg_color': '#064e3b', 'border': 1})
-    cell_format = workbook.add_format({'border': 1})
-    num_format = workbook.add_format({'border': 1, 'num_format': '#,##0'})
-    total_row_format = workbook.add_format({'bold': True, 'font_color': '#fde68a', 'bg_color': '#064e3b', 'border': 1, 'num_format': '#,##0'})
-    date_format = workbook.add_format({'border': 1, 'num_format': 'yyyy-mm-dd'})
-    
-    # Tüm sütunlara güvenli sabit genişlik
-    worksheet.set_column(0, max(len(df.columns) - 1, 0), 20)
-    
-    for col_num, col_name in enumerate(df.columns):
-        worksheet.write(0, col_num, str(col_name), header_format)
-        
-    for row_num in range(len(df)):
-        # GÜVENLİ TOTAL KONTROLÜ: Sadece ilk sütuna bakar, tarih çakışması yapmaz
-        is_total_row = str(df.iloc[row_num, 0]).strip() == 'TOTAL'
-        
-        for col_num, col_name in enumerate(df.columns):
-            val = df.iloc[row_num, col_num]
-            
-            if pd.isna(val):
-                worksheet.write(row_num + 1, col_num, "", cell_format)
-                continue
-                
-            if is_total_row:
-                worksheet.write(row_num + 1, col_num, val, total_row_format)
-            elif pd.api.types.is_numeric_dtype(df[col_name]) and isinstance(val, (int, float)):
-                worksheet.write(row_num + 1, col_num, val, num_format)
-            elif pd.api.types.is_datetime64_any_dtype(df[col_name]):
-                worksheet.write(row_num + 1, col_num, val, date_format)
-            else:
-                worksheet.write(row_num + 1, col_num, str(val), cell_format)
-
-def toggle_currency_view():
-    st.session_state['view_currency'] = "EUR" if st.session_state['view_currency'] == "Local" else "Local"
-
-def prepare_for_display(df, numeric_cols):
-    if df is None or df.empty: return df
-    df = df.copy()
-    df.columns.name = None
-    df.index.name = None
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = df[col].fillna(0)
-    return df
-
-# ==========================================
-# 3. UI & LOGIN SYSTEM (OPELLA CSS)
-# ==========================================
+# Hide Streamlit branding
 st.markdown("""
 <style>
-[data-testid="stSidebar"] { background: linear-gradient(160deg, #022c22 0%, #064e3b 100%); }
-[data-testid="stSidebar"] label, [data-testid="stSidebar"] p, [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p { color: #F8FAFC !important; font-weight: 500; }
-[data-testid="stSidebar"] input { color: #000000 !important; background-color: #ffffff !important; -webkit-text-fill-color: #000000 !important; font-weight: 800 !important; }
-[data-testid="stSidebar"] div[data-baseweb="select"] > div { background-color: #ffffff !important; cursor: pointer; }
-[data-testid="stSidebar"] div[data-baseweb="select"] span { color: #000000 !important; -webkit-text-fill-color: #000000 !important; font-weight: 800 !important; }
-ul[role="listbox"] { background-color: #ffffff !important; }
-ul[role="listbox"] li { color: #000000 !important; font-weight: bold !important; }
-[data-testid="stFileUploadDropzone"] { background-color: #ffffff !important; border: 2px dashed #94A3B8 !important; }
-[data-testid="stFileUploadDropzone"] * { color: #000000 !important; -webkit-text-fill-color: #000000 !important; font-weight: 800 !important; }
-[data-testid="stSidebar"] button { background-color: #475569 !important; border: 1px solid #94A3B8 !important; color: #FFFFFF !important; font-weight: bold !important; border-radius: 6px; }
-[data-testid="stSidebar"] button:hover { background-color: #64748B !important; border-color: #CBD5E1 !important; }
-
-/* UX: Sekmelerin (Tabs) Modern, Pill-Shaped Tasarımı */
-div[data-testid="stTabs"] { gap: 8px; margin-bottom: 20px; }
-div[data-testid="stTabs"] button { background-color: #f1f5f9; border-radius: 8px !important; padding: 10px 24px; font-weight: 700; color: #475569; border: 1px solid #cbd5e1; border-bottom: none; transition: all 0.2s ease-in-out; }
-div[data-testid="stTabs"] button[aria-selected="true"] { background-color: #064e3b !important; color: #fde68a !important; border-color: #064e3b; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-div[data-testid="stTabs"] button:hover { background-color: #e2e8f0; color: #0f172a; }
-div[data-testid="stTabs"] button[aria-selected="true"]:hover { background-color: #022c22 !important; color: #ffffff !important; }
-
-/* İndirme Butonları Tasarımı */
-[data-testid="stDownloadButton"] button { background-color: #064e3b !important; color: #fde68a !important; border: 2px solid #022c22 !important; font-weight: 800 !important; border-radius: 8px !important; width: 100%; }
-[data-testid="stDownloadButton"] button p { color: #fde68a !important; font-weight: 800 !important; }
-[data-testid="stDownloadButton"] button:hover { background-color: #022c22 !important; color: #ffffff !important; border-color: #fde68a !important; }
-[data-testid="stDownloadButton"] button:hover p { color: #ffffff !important; }
-
-.kpi-row { display:flex; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
-.kpi-card { flex:1; min-width:180px; background:#fff; border-radius:10px; padding:15px; box-shadow:0 1px 3px rgba(0,0,0,.1); border-top:4px solid #E5E7EB; }
-.kpi-card.blue { border-top-color:#1A56DB; }
-.kpi-card.purple { border-top-color:#7E3AF2; }
-.kpi-card.green { border-top-color:#057A55; }
-.kpi-card.amber { border-top-color:#D97706; }
-.kpi-card.red { border-top-color:#E02424; }
-.kpi-label { font-size:0.75rem; text-transform:uppercase; color:#64748B; font-weight:700; margin-bottom:5px; }
-.kpi-value { font-size:1.6rem; font-weight:800; color:#0F172A; }
-.kpi-sub { font-size:0.7rem; color:#64748B; margin-top:5px; }
-
-[data-testid="stDataFrame"] { width: 100% !important; margin: 0 auto; }
-
-/* 🔥 STREAMLIT CLOUD LOGOLARINI VE MENÜLERİNİ YOK EDEN KESİN CSS 🔥 */
-header {visibility: hidden !important;}
-.stApp {margin-top: -50px;}
-#MainMenu {visibility: hidden !important;}
-footer {visibility: hidden !important;}
-.viewerBadge_container__1QSob {display: none !important;}
-.viewerBadge_link__1S137 {display: none !important;}
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+.stDeployButton {display:none;}
+[data-testid="stToolbar"] {display: none;}
 </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 4. NAVIGATION & SIDEBAR
-# ==========================================
+# ══════════════════════════════════════════════════════════════════════════════
+# CONSTANTS
+# ══════════════════════════════════════════════════════════════════════════════
+AGING_LABELS = ["Current", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
+AGING_COLORS = ["#10B981", "#3B82F6", "#F59E0B", "#EF4444", "#991B1B"]
+AGING_BG = ["rgba(16,185,129,0.1)", "rgba(59,130,246,0.1)", "rgba(245,158,11,0.1)", 
+            "rgba(239,68,68,0.1)", "rgba(153,27,27,0.1)"]
+
+CURRENCIES = {
+    "EUR": "EUR", "USD": "USD", "GBP": "GBP", "TRY": "TRY", "EGP": "EGP", "TND": "TND",
+    "AED": "AED", "SAR": "SAR", "CNY": "CNY", "JPY": "JPY", "INR": "INR", "BRL": "BRL"
+}
+
+GL_NAMES = {
+    "160000": "AP Trade", "160100": "AP Interco", "160200": "AP Services",
+    "168000": "AP Accruals", "165000": "Employee Pay", "163000": "Travel Accrual"
+}
+
+ICO_GL = ("160100", "161", "162")
+EMP_GL = ("165", "163")
+ICO_KW = ["interco", "ico", "affiliated", "related party", "intragroup", "group payable"]
+EMP_KW = ["employee", "personnel", "staff", "travel", "expense", "salary", "bonus"]
+
+def is_ico(gl, vname=""):
+    gl, vn = str(gl).strip(), f" {str(vname).lower()} "
+    return gl.startswith(ICO_GL) or any(f" {k} " in vn for k in ICO_KW) or "intercompany" in vn
+
+def is_employee(gl, vname=""):
+    gl, vn = str(gl).strip(), f" {str(vname).lower()} "
+    return gl.startswith(EMP_GL) or any(f" {k} " in vn for k in EMP_KW)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# THEME SYSTEM (Light/Dark Mode)
+# ══════════════════════════════════════════════════════════════════════════════
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'light'
+
+def get_theme():
+    if st.session_state.theme == 'dark':
+        return {
+            'bg': '#0F172A', 'card_bg': '#1E293B', 'text': '#F1F5F9', 
+            'text_sec': '#94A3B8', 'border': '#334155', 'accent': '#3B82F6'
+        }
+    return {
+        'bg': '#F8FAFC', 'card_bg': '#FFFFFF', 'text': '#0F172A', 
+        'text_sec': '#64748B', 'border': '#E2E8F0', 'accent': '#2563EB'
+    }
+
+theme = get_theme()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GLASSMORPHISM CSS
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown(f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+* {{
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}}
+
+html, body, [data-testid="stAppViewContainer"] {{
+    background: {theme['bg']};
+    color: {theme['text']};
+}}
+
+[data-testid="stSidebar"] {{
+    background: linear-gradient(180deg, #1e3a8a 0%, #312e81 100%);
+}}
+
+[data-testid="stSidebar"] * {{
+    color: #F1F5F9 !important;
+}}
+
+/* Glassmorphism Cards */
+.glass-card {{
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+}}
+
+.glass-card:hover {{
+    transform: translateY(-4px);
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
+}}
+
+/* KPI Cards */
+.kpi-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}}
+
+.kpi-card {{
+    background: {theme['card_bg']};
+    border: 1px solid {theme['border']};
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}}
+
+.kpi-card:hover {{
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+}}
+
+.kpi-card::before {{
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background: linear-gradient(180deg, var(--accent), transparent);
+}}
+
+.kpi-label {{
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: {theme['text_sec']};
+    margin-bottom: 8px;
+}}
+
+.kpi-value {{
+    font-size: 2rem;
+    font-weight: 800;
+    color: {theme['text']};
+    line-height: 1.2;
+    margin-bottom: 4px;
+}}
+
+.kpi-sub {{
+    font-size: 0.85rem;
+    color: {theme['text_sec']};
+}}
+
+.kpi-badge {{
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: rgba(59, 130, 246, 0.1);
+    color: #3B82F6;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 999px;
+}}
+
+/* Progress Bars */
+.progress-bar {{
+    height: 8px;
+    background: {theme['border']};
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 12px;
+}}
+
+.progress-fill {{
+    height: 100%;
+    background: linear-gradient(90deg, #3B82F6, #8B5CF6);
+    transition: width 0.6s ease;
+}}
+
+/* Aging Pills */
+.pill {{
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin: 2px;
+}}
+
+.pill-current {{ background: #D1FAE5; color: #065F46; }}
+.pill-30 {{ background: #DBEAFE; color: #1E40AF; }}
+.pill-60 {{ background: #FEF3C7; color: #92400E; }}
+.pill-90 {{ background: #FEE2E2; color: #991B1B; }}
+.pill-120p {{ background: #FEE2E2; color: #7F1D1D; border: 2px solid #991B1B; }}
+
+/* Section Headers */
+.sec-hdr {{
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: {theme['text']};
+    margin: 24px 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid {theme['accent']};
+}}
+
+/* Info Boxes */
+.info-box {{
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 12px;
+    padding: 16px;
+    margin: 12px 0;
+    font-size: 0.9rem;
+    line-height: 1.6;
+}}
+
+.warning-box {{
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}}
+
+.success-box {{
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HELPER FUNCTIONS
+# ══════════════════════════════════════════════════════════════════════════════
+def assign_aging(days):
+    if days <= 0: return "Current"
+    elif days <= 30: return "1-30 Days"
+    elif days <= 60: return "31-60 Days"
+    elif days <= 90: return "61-90 Days"
+    else: return "90+ Days"
+
+def fa(val):
+    """Format Amount"""
+    curr = st.session_state.get("disp_curr", "EUR")
+    kk = st.session_state.get("in_k", False)
+    if pd.isna(val): return "—"
+    v = abs(float(val)) / (1000 if kk else 1)
+    return f"{v:,.0f} {'k' if kk else ''}{curr}"
+
+def smart_read(file):
+    """Encoding-safe file reader"""
+    name = file.name.lower()
+    if name.endswith((".xlsx", ".xls")):
+        return pd.read_excel(file)
+    raw = file.getvalue()
+    for enc in ["utf-8-sig", "utf-8", "iso-8859-9", "cp1254", "latin-1", "cp1252"]:
+        try:
+            return pd.read_csv(io.BytesIO(raw), encoding=enc, sep=None, 
+                             engine="python", on_bad_lines="skip")
+        except:
+            continue
+    raise ValueError(f"Could not read '{file.name}'")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔥 PERFECT DATA LOADER (Bug Fix: Correct Amount Column)
+# ══════════════════════════════════════════════════════════════════════════════
+@st.cache_data(show_spinner=False)
+def load_fbl1n(file):
+    """Perfect FBL1N loader with correct amount mapping"""
+    df = smart_read(file)
+    df.columns = [str(c).strip() for c in df.columns]
+    df = df.loc[:, ~df.columns.duplicated()].copy()
+    
+    rename, mapped = {}, set()
+    
+    for c in df.columns:
+        cl, target = c.lower(), None
+        
+        # ✅ CRITICAL: Amount mapping priority
+        if "amount in local currency" in cl:
+            target = "Amount (LC)"
+        elif "vendor name" in cl or "name1" in cl:
+            target = "Vendor Name"
+        elif "supplier" in cl or "vendor" in cl:
+            target = "Vendor"
+        elif "payment date" in cl or "due date" in cl or "vade" in cl:
+            target = "Due Date"
+        elif "document date" in cl or "belge tarihi" in cl:
+            target = "Document Date"
+        elif "g/l account" in cl or "gl account" in cl:
+            target = "GL Account"
+        elif "document number" in cl:
+            target = "Document No"
+        elif "company code" in cl:
+            target = "Company Code"
+        
+        if target and target not in mapped:
+            rename[c] = target
+            mapped.add(target)
+    
+    df.rename(columns=rename, inplace=True)
+    
+    # Defaults
+    defaults = {
+        "Amount (LC)": 0,
+        "Vendor": "Unknown",
+        "Due Date": pd.Timestamp(date.today()),
+        "GL Account": "160000",
+    }
+    for col, val in defaults.items():
+        if col not in df.columns:
+            df[col] = val
+    
+    # Type conversions
+    df["Due Date"] = pd.to_datetime(df["Due Date"], errors="coerce").fillna(pd.Timestamp(date.today()))
+    df["Amount (LC)"] = pd.to_numeric(df["Amount (LC)"], errors="coerce").fillna(0)
+    
+    today = pd.Timestamp(date.today())
+    df["Days Overdue"] = (today - df["Due Date"]).dt.days.clip(lower=0)
+    df["Aging Bucket"] = df["Days Overdue"].apply(assign_aging)
+    df["GL Account"] = df["GL Account"].astype(str).str.strip()
+    
+    # Segment classification
+    vn = "Vendor Name" if "Vendor Name" in df.columns else "Vendor"
+    df["Segment"] = df.apply(
+        lambda r: "ICO" if is_ico(r["GL Account"], r[vn])
+        else ("Employee" if is_employee(r["GL Account"], r[vn]) else "3rd Party"),
+        axis=1
+    )
+    
+    return df.loc[:, ~df.columns.duplicated()].copy()
+
+
+@st.cache_data(show_spinner=False)
+def load_f01(file):
+    """F.01 Trial Balance loader"""
+    df = smart_read(file)
+    df.columns = [str(c).strip() for c in df.columns]
+    df = df.loc[:, ~df.columns.duplicated()].copy()
+    
+    rename, mapped = {}, set()
+    for c in df.columns:
+        cl, target = c.lower(), None
+        if "g/l account" in cl or "gl account" in cl: target = "GL Account"
+        elif "balance" in cl or "saldo" in cl: target = "Balance"
+        elif "fs item" in cl or "solar" in cl: target = "SOLAR"
+        elif "description" in cl or "text" in cl: target = "Description"
+        
+        if target and target not in mapped:
+            rename[c] = target
+            mapped.add(target)
+    
+    df.rename(columns=rename, inplace=True)
+    
+    for col, val in [("GL Account", "Unknown"), ("Balance", 0)]:
+        if col not in df.columns: df[col] = val
+    
+    df["Balance"] = pd.to_numeric(df["Balance"], errors="coerce").fillna(0)
+    df["GL Account"] = df["GL Account"].astype(str).str.strip()
+    
+    if "SOLAR" not in df.columns: df["SOLAR"] = ""
+    df["SOLAR"] = df["SOLAR"].astype(str).str.strip()
+    
+    if "Description" not in df.columns:
+        df["Description"] = df["GL Account"]
+    
+    return df.loc[:, ~df.columns.duplicated()].copy()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DEMO DATA
+# ══════════════════════════════════════════════════════════════════════════════
+@st.cache_data(show_spinner=False)
+def demo_fbl1n(n=500):
+    np.random.seed(42)
+    today = pd.Timestamp(date.today())
+    vendors = [f"V{str(i).zfill(6)}" for i in range(1001, 1101)]
+    vnames = ["Siemens AG", "Bosch GmbH", "SAP SE", "BASF SE", "Henkel AG",
+              "Sanofi EMEA (ICO)", "Sanofi US (ICO)", "Group Treasury (ICO)",
+              "John Smith (Employee)", "Travel Expense Pool"]
+    vmap = {v: vnames[i % len(vnames)] for i, v in enumerate(vendors)}
+    
+    gl_pool = [("160000", 0.35), ("160100", 0.20), ("168000", 0.18), 
+               ("165000", 0.15), ("163000", 0.12)]
+    gls, gprob = zip(*gl_pool)
+    gprob = np.array(gprob) / sum(gprob)
+    
+    rows = []
+    for i in range(n):
+        v = np.random.choice(vendors)
+        gl = np.random.choice(gls, p=gprob)
+        offset = np.random.choice([-5, 0, 15, 35, 55, 80, 110], 
+                                  p=[0.15, 0.20, 0.20, 0.15, 0.12, 0.10, 0.08])
+        due = today - pd.Timedelta(days=int(offset))
+        amt = np.random.choice([-1, 1]) * round(np.random.lognormal(9, 1.5), 2)
+        
+        rows.append({
+            "Vendor": v,
+            "Vendor Name": vmap[v],
+            "GL Account": gl,
+            "Due Date": due,
+            "Amount (LC)": amt,
+            "Document No": f"DOC{np.random.randint(1000000, 9999999)}",
+            "Company Code": np.random.choice(["DE01", "FR01", "TR01", "EG03"])
+        })
+    
+    df = pd.DataFrame(rows)
+    df["Days Overdue"] = (today - df["Due Date"]).dt.days.clip(lower=0)
+    df["Aging Bucket"] = df["Days Overdue"].apply(assign_aging)
+    df["Segment"] = df.apply(
+        lambda r: "ICO" if is_ico(r["GL Account"], r["Vendor Name"])
+        else ("Employee" if is_employee(r["GL Account"], r["Vendor Name"]) else "3rd Party"),
+        axis=1
+    )
+    return df
+
+
+@st.cache_data(show_spinner=False)
+def demo_f01():
+    return pd.DataFrame([
+        {"GL Account": "160000", "Balance": -3500000, "SOLAR": "40000", "Description": "AP Trade"},
+        {"GL Account": "160100", "Balance": -2200000, "SOLAR": "42905", "Description": "AP Interco"},
+        {"GL Account": "165000", "Balance": -450000, "SOLAR": "42006", "Description": "Employee Pay"},
+    ])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RECONCILIATION
+# ══════════════════════════════════════════════════════════════════════════════
+def reconcile(fbl1n, f01):
+    """SOLAR-aware GL reconciliation"""
+    f01_pay = f01[f01["SOLAR"].isin(["40000", "42905", "42006"])].copy()
+    
+    ap = fbl1n.groupby("GL Account")["Amount (LC)"].sum().reset_index()
+    ap.columns = ["GL Account", "AP Subledger"]
+    
+    m = pd.merge(
+        f01_pay[["GL Account", "Description", "Balance", "SOLAR"]],
+        ap, on="GL Account", how="outer"
+    ).fillna(0)
+    
+    m["Difference"] = m["Balance"] - m["AP Subledger"]
+    m["Match"] = m["Difference"].abs() < 1.0
+    
+    matched = m[m["Match"]].copy()
+    gaps = m[~m["Match"] & (m["AP Subledger"] != 0)].copy()
+    missing = m[(m["Balance"] != 0) & (m["AP Subledger"] == 0)].copy()
+    
+    return matched, gaps, missing
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔥 PERFECT EXCEL EXPORT (Bug Fix)
+# ══════════════════════════════════════════════════════════════════════════════
+def build_excel(df_full, recon_match, recon_gap, recon_miss, aging_summary):
+    """
+    Perfect Excel export - uses FULL dataset, no filtering
+    
+    BUG FIX: Previous version was exporting filtered df, 
+    causing mismatch between dashboard totals and Excel totals
+    """
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        # Fallback to basic export
+        buf = BytesIO()
+        with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
+            df_full.to_excel(w, sheet_name="AP Line Items", index=False)
+            aging_summary.to_excel(w, sheet_name="Aging Summary", index=False)
+            recon_match.to_excel(w, sheet_name="Reconciliation Matched", index=False)
+            recon_gap.to_excel(w, sheet_name="Reconciliation Gaps", index=False)
+            recon_miss.to_excel(w, sheet_name="Missing GL", index=False)
+        return buf.getvalue()
+    
+    wb = Workbook()
+    
+    # Styles
+    HF = PatternFill("solid", fgColor="1A56DB")
+    HFT = Font(bold=True, color="FFFFFF", size=10)
+    BD = Side(style="thin", color="E2E8F0")
+    CBR = Border(left=BD, right=BD, top=BD, bottom=BD)
+    
+    AGING_FILLS = {
+        "Current": PatternFill("solid", fgColor="D1FAE5"),
+        "1-30 Days": PatternFill("solid", fgColor="DBEAFE"),
+        "31-60 Days": PatternFill("solid", fgColor="FEF3C7"),
+        "61-90 Days": PatternFill("solid", fgColor="FEE2E2"),
+        "90+ Days": PatternFill("solid", fgColor="FEE2E2"),
+    }
+    
+    def hrow(ws, nc):
+        for c in range(1, nc + 1):
+            cell = ws.cell(row=1, column=c)
+            if cell.value:
+                cell.fill = HF
+                cell.font = HFT
+                cell.border = CBR
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    def aw(ws):
+        for col in ws.columns:
+            mx = max((len(str(c.value or "")) for c in col), default=8)
+            ws.column_dimensions[get_column_letter(col[0].column)].width = min(mx + 4, 50)
+    
+    # ─── Cover Sheet ───
+    ws0 = wb.active
+    ws0.title = "Cover"
+    ws0["B2"] = "VendorFace v6.0 — AP Intelligence Report"
+    ws0["B2"].font = Font(bold=True, size=18, color="1A56DB")
+    ws0["B3"] = f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    ws0["B3"].font = Font(size=11, color="64748B")
+    ws0["B5"] = f"Total Records: {len(df_full):,}"
+    ws0["B6"] = f"Total Amount: {df_full['Amount (LC)'].sum():,.2f}"
+    ws0.column_dimensions["B"].width = 50
+    
+    # ─── 1. AP Line Items (FULL DATASET) ───
+    ws1 = wb.create_sheet("AP Line Items")
+    cols = [c for c in ["Document No", "Vendor", "Vendor Name", "GL Account", "Segment",
+                         "Due Date", "Days Overdue", "Aging Bucket", "Amount (LC)", 
+                         "Company Code"] if c in df_full.columns]
+    
+    ws1.append(cols)
+    hrow(ws1, len(cols))
+    ws1.freeze_panes = "A2"
+    
+    # ✅ CRITICAL: Use full dataset
+    for _, row in df_full[cols].iterrows():
+        ws1.append(list(row))
+        r = ws1.max_row
+        bk = row.get("Aging Bucket", "Current")
+        fill = AGING_FILLS.get(bk, PatternFill())
+        
+        for ci in range(1, len(cols) + 1):
+            cell = ws1.cell(row=r, column=ci)
+            cell.border = CBR
+            cell.fill = fill
+            if cols[ci - 1] == "Amount (LC)":
+                cell.number_format = '#,##0.00'
+    
+    aw(ws1)
+    
+    # ─── 2. Aging Summary ───
+    ws2 = wb.create_sheet("Aging Summary")
+    ws2.append(list(aging_summary.columns))
+    hrow(ws2, len(aging_summary.columns))
+    
+    for _, row in aging_summary.iterrows():
+        ws2.append(list(row))
+        r = ws2.max_row
+        bk = row.get("Aging Bucket", "Current")
+        fill = AGING_FILLS.get(bk, PatternFill())
+        
+        for ci in range(1, len(aging_summary.columns) + 1):
+            cell = ws2.cell(row=r, column=ci)
+            cell.border = CBR
+            cell.fill = fill
+            if "Amount" in aging_summary.columns[ci - 1]:
+                cell.number_format = '#,##0.00'
+    
+    aw(ws2)
+    
+    # ─── 3. Vendor Summary ───
+    ws3 = wb.create_sheet("Vendor Summary")
+    vc = ["Vendor", "Vendor Name", "Segment"] if "Vendor Name" in df_full.columns else ["Vendor", "Segment"]
+    vdf = (df_full.groupby(vc)
+           .agg(Balance=("Amount (LC)", "sum"),
+                Count=("Amount (LC)", "count"),
+                MaxOverdue=("Days Overdue", "max"))
+           .reset_index()
+           .sort_values("Balance"))
+    
+    ws3.append(list(vdf.columns))
+    hrow(ws3, len(vdf.columns))
+    
+    for _, row in vdf.iterrows():
+        ws3.append(list(row))
+        r = ws3.max_row
+        for ci in range(1, len(vdf.columns) + 1):
+            cell = ws3.cell(row=r, column=ci)
+            cell.border = CBR
+            if vdf.columns[ci - 1] == "Balance":
+                cell.number_format = '#,##0.00'
+    
+    aw(ws3)
+    
+    # ─── 4. Reconciliation ───
+    ws4 = wb.create_sheet("Reconciliation Matched")
+    ws4.append(list(recon_match.columns))
+    hrow(ws4, len(recon_match.columns))
+    for _, row in recon_match.iterrows():
+        ws4.append(list(row))
+    aw(ws4)
+    
+    ws5 = wb.create_sheet("Reconciliation Gaps")
+    ws5.append(list(recon_gap.columns))
+    hrow(ws5, len(recon_gap.columns))
+    for _, row in recon_gap.iterrows():
+        ws5.append(list(row))
+    aw(ws5)
+    
+    ws6 = wb.create_sheet("Missing GL")
+    ws6.append(list(recon_miss.columns))
+    hrow(ws6, len(recon_miss.columns))
+    for _, row in recon_miss.iterrows():
+        ws6.append(list(row))
+    aw(ws6)
+    
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SIDEBAR
+# ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    if os.path.exists("logo.png"):
-        st.image("logo.png", use_container_width=True)
+    st.markdown(f"""
+    <div style='text-align:center;padding:20px 0;'>
+        <div style='font-size:2.5rem;margin-bottom:8px;'>💎</div>
+        <div style='font-size:1.3rem;font-weight:800;color:#F1F5F9;'>VendorFace</div>
+        <div style='font-size:0.7rem;color:#94A3B8;letter-spacing:0.1em;'>v6.0 ULTIMATE</div>
+    </div>
+    <hr style='border-color:#475569;margin:16px 0;'/>
+    """, unsafe_allow_html=True)
     
-    st.markdown(f"👤 **{st.session_state['user_name']}**")
-    st.divider()
-    
-    menu_options = ["🏠 Analysis Home"]
-    if st.session_state['user_email'] == MASTER_ADMIN:
-        menu_options.append("🛠️ Manage Users")
-    
-    page = st.radio("Navigation Menu", menu_options)
-    st.divider()
-
-    if page == "🏠 Analysis Home":
-        uploaded_file = st.file_uploader("1. FBL1N Report (Mandatory)", type=["xlsx", "xls", "csv"])
-        tb_file = st.file_uploader("2. Trial Balance F.01 (Mandatory)", type=["xlsx", "xls", "csv"])
-        
-        currency_list = ["TRY", "EUR", "USD", "GBP", "EGP", "AUD", "JPY", "VND", "MYR", "SGD", "KRW", "TND", "CNY", "INR", "THB"]
-        currency = st.selectbox("Base Currency", currency_list, index=0)
-        
-        if st.button("🌐 Sync Online EUR Rate"):
-            live = get_live_rate(currency)
-            if live: 
-                st.session_state['cur_val'] = live
-                st.success(f"Live Rate Synced: {live:.4f}")
-            else:
-                st.error("Failed to fetch live rate. Please enter manually.")
-        
-        eur_rate = st.number_input(f"1 EUR = ? {currency}", value=st.session_state.get('cur_val', 35.00), format="%.4f")
-        
-        display_unit = f"k{currency}" if st.session_state['view_currency'] == "Local" else "kEUR"
-        scalar = 1000 if st.session_state['view_currency'] == "Local" else (1000 * eur_rate)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🚪 Logout"): st.session_state.clear(); st.rerun()
-
-# ==========================================
-# 5. ADMIN PANEL PAGE
-# ==========================================
-if page == "🛠️ Manage Users":
-    st.title("🛠️ System Administration")
-    c1, c2 = st.columns(2)
-    with c1:
-        with st.form("add_user_form"):
-            new_u = st.text_input("New Colleague Email")
-            if st.form_submit_button("Grant Access"):
-                if add_user(new_u): st.success(f"Access granted to {new_u}"); st.rerun()
-                else: st.warning("User already exists in the system.")
-    with c2:
-        all_users = load_users()
-        st.write("Authorized Personnel:")
-        st.dataframe(all_users, use_container_width=True)
-        user_to_del = st.selectbox("Select user to revoke access", all_users[all_users['email'] != MASTER_ADMIN]['email'].values)
-        if st.button("Revoke Access"):
-            if remove_user(user_to_del): st.success("Access successfully revoked."); st.rerun()
-
-# ==========================================
-# 6. ANALYSIS HOME PAGE (THE CORE)
-# ==========================================
-elif page == "🏠 Analysis Home":
-    st.markdown(f"""<div style="display: flex; justify-content: space-between; align-items: center;"><div><h1 style="margin:0; color:#064e3b;">📊 AP Analyzing Suite</h1><p style="color:#64748b; margin:0; font-weight:600;">Support & Operational Intelligence Dashboard for HFOs</p></div><div style="text-align: right; color: #94a3b8; font-size: 15px;">Developed by <b>Can Adiguzel</b><br>{VERSION_NO} | {display_unit} View</div></div>""", unsafe_allow_html=True)
-    st.markdown("<hr style='margin-top:10px; margin-bottom:20px;'>", unsafe_allow_html=True)
-
-    col_t1, col_t2 = st.columns([8, 2])
+    # Theme Toggle
+    col_t1, col_t2 = st.columns([3, 1])
     with col_t2:
-        toggle_label = "Switch to kEUR View" if st.session_state['view_currency'] == "Local" else f"Switch to k{currency} View"
-        st.button(f"🔄 {toggle_label}", key="toggle_curr_btn", on_click=toggle_currency_view, use_container_width=True)
+        if st.button("🌙" if st.session_state.theme == 'light' else "☀️", 
+                     help="Toggle theme", use_container_width=True):
+            st.session_state.theme = 'dark' if st.session_state.theme == 'light' else 'light'
+            st.rerun()
+    
+    st.markdown("### 📁 Data Source")
+    use_demo = st.toggle("Demo Mode", value=True)
+    fbl1n_file, f01_file = None, None
+    
+    if not use_demo:
+        fbl1n_file = st.file_uploader("FBL1N — AP Line Items", type=["xlsx", "xls", "csv"])
+        f01_file = st.file_uploader("F.01 — Trial Balance", type=["xlsx", "xls", "csv"])
+    
+    st.markdown("<hr style='border-color:#475569;margin:16px 0;'/>", unsafe_allow_html=True)
+    
+    st.markdown("### 💱 Currency")
+    cur_sel = st.selectbox("Local Currency", list(CURRENCIES.keys()), index=0)
+    cur_code = CURRENCIES[cur_sel]
+    in_k = st.toggle(f"Show in thousands (k{cur_code})", value=False)
+    
+    st.session_state["disp_curr"] = cur_code
+    st.session_state["in_k"] = in_k
+    
+    st.markdown("<hr style='border-color:#475569;margin:16px 0;'/>", unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div style='background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);
+                border-radius:8px;padding:12px;font-size:0.75rem;line-height:1.5;'>
+        🔒 <b>Zero Data Retention</b><br/>
+        All files processed in temporary memory only. No data stored on servers.
+    </div>
+    """, unsafe_allow_html=True)
 
-    if uploaded_file and tb_file:
-        btn_text = "🔄 Refresh Data & Re-Run Analysis" if st.session_state['analysis_run'] else "🚀 Run Analysis Engine"
-        btn_type = "secondary" if st.session_state['analysis_run'] else "primary"
-        
-        if st.button(btn_text, type=btn_type, use_container_width=True):
-            
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            status_text.text("Reading Trial Balance (F.01) and mapping SOLAR codes...")
-            name_map, solar_map, tb_bal_map = smart_parse_tb(tb_file)
-            progress_bar.progress(30)
-            time.sleep(0.5)
-            
-            status_text.text("Processing FBL1N open items...")
-            df_raw = smart_read(uploaded_file)
-            df = df_raw.dropna(subset=['Document Number']) if 'Document Number' in df_raw.columns else df_raw
-            
-            df['Amount'] = pd.to_numeric(df.get('Amount in local currency', df.get('Amount', 0)), errors='coerce').fillna(0)
-            df['GL'] = df.get('G/L Account', df.get('GL Account', '')).astype(str).str.split('.').str[0]
-            df['Vendor'] = df.get('Vendor name', df.get('Supplier', pd.Series(dtype=str))).astype(str)
-            
-            progress_bar.progress(50)
-            status_text.text("Executing Segmentation and Aging calculations...")
-            
-            df['SOLAR Code'] = df['GL'].map(solar_map).fillna("Unknown")
-            
-            def get_segment(solar):
-                s = str(solar).strip()
-                if s == "42905": return "ICO"
-                if s == "42006": return "Employee"
-                if s == "24018": return "Prepayment"
-                if s == "40000": return "3rd Party"
-                return "Other"
-                
-            df['Segment'] = df['SOLAR Code'].apply(get_segment)
-            
-            report_date = pd.to_datetime(df['Posting Date']).max() if 'Posting Date' in df.columns else pd.Timestamp(datetime.now())
-            buckets = ["Not Due (1-90 Days)", "91-180 Days", "181-360 Days", "360+ Days"]
-            
-            def calc_bucket(pay_date):
-                if pd.isna(pay_date): return "Not Due (1-90 Days)"
-                days = (report_date - pay_date).days
-                if days <= 90: return "Not Due (1-90 Days)"
-                elif days <= 180: return "91-180 Days"
-                elif days <= 360: return "181-360 Days"
-                else: return "360+ Days"
-                
-            date_col = 'Payment date' if 'Payment date' in df.columns else ('Due Date' if 'Due Date' in df.columns else 'Document Date')
-            df['Bucket'] = pd.to_datetime(df[date_col], errors='coerce').apply(calc_bucket)
-            
-            progress_bar.progress(75)
-            status_text.text("Building Audit & Reconciliation matrices...")
-            
-            vendor_net = df[df['Segment'].isin(['3rd Party', 'ICO', 'Employee'])].groupby('Vendor')['Amount'].sum().reset_index()
-            debit_vendors = vendor_net[vendor_net['Amount'] > 0]['Vendor'].tolist()
-            
-            gl_fbl1n_sums = df.groupby('GL')['Amount'].sum().to_dict()
-            rec_list, gap_list = [], []
-            payable_solar_groups = ['40000', '42905', '42006', '24018']
-            
-            fbl1n_unique_gls = set(df['GL'].unique())
-            for gl in fbl1n_unique_gls:
-                f_val = gl_fbl1n_sums.get(gl, 0)
-                tb_val = tb_bal_map.get(gl, 0)
-                diff = tb_val - f_val
-                status = "✅ Matched" if abs(diff) < 1.0 else "⚠️ Mismatch"
-                rec_list.append({
-                    "GL Account": gl, "Description": name_map.get(gl, "-"), 
-                    "SOLAR Group": str(solar_map.get(gl, "")).strip(), 
-                    "F.01 Balance": tb_val, "FBL1N Balance": f_val, 
-                    "Difference": diff, "Status": status
-                })
-                
-            for gl, tb_val in tb_bal_map.items():
-                s_code = str(solar_map.get(gl, "")).strip()
-                if s_code in payable_solar_groups and gl not in fbl1n_unique_gls and abs(tb_val) >= 1:
-                    gap_list.append({
-                        "GL Account": gl, "Description": name_map.get(gl, "-"), 
-                        "SOLAR Group": s_code, "F.01 Balance": tb_val
-                    })
-            
-            rec_df = pd.DataFrame(rec_list)
-            gap_df = pd.DataFrame(gap_list)
-            
-            progress_bar.progress(100)
-            status_text.text("Analysis Engine execution completed successfully!")
-            time.sleep(1)
-            progress_bar.empty()
-            status_text.empty()
-            
-            st.session_state['analysis_run'] = True
-            st.session_state['results'] = {
-                'raw_data': df,
-                'rec_df': rec_df,
-                'gap_df': gap_df,
-                'buckets': buckets,
-                'debit_vendors': debit_vendors
-            }
 
-    # ==========================================
-    # DASHBOARD RESULTS RENDER
-    # ==========================================
-    if st.session_state['results']:
-        res = st.session_state['results']
-        df = res['raw_data']
-        buckets = res['buckets']
-        debit_vendors = res['debit_vendors']
-        
-        def sc(val): return val / scalar
+# ══════════════════════════════════════════════════════════════════════════════
+# LOAD DATA
+# ══════════════════════════════════════════════════════════════════════════════
+if use_demo:
+    fbl1n_df, f01_df, data_ok = demo_fbl1n(500), demo_f01(), True
+else:
+    data_ok, fbl1n_df, f01_df = False, None, demo_f01()
+    
+    if fbl1n_file:
+        try:
+            with st.spinner("📊 Processing FBL1N data..."):
+                fbl1n_df = load_fbl1n(fbl1n_file)
+            st.success("✅ FBL1N loaded successfully")
+            data_ok = True
+        except Exception as e:
+            st.error(f"❌ Error loading FBL1N: {e}")
+            st.stop()
+    
+    if f01_file:
+        try:
+            with st.spinner("📊 Processing F.01 data..."):
+                f01_df = load_f01(f01_file)
+        except Exception as e:
+            st.warning(f"F.01 loading failed: {e}")
 
-        payables_df = df[df['Segment'].isin(['3rd Party', 'ICO', 'Employee'])]
-        prep_df = df[df['Segment'] == 'Prepayment']
-        debit_df = payables_df[payables_df['Vendor'].isin(debit_vendors)]
+df_full = fbl1n_df.copy() if data_ok else pd.DataFrame()
 
-        tot_debt = payables_df['Amount'].sum()
-        prep_total = prep_df['Amount'].sum()
-        debit_total = debit_df['Amount'].sum() if not debit_df.empty else 0
-        ico_total = df[df['Segment'] == 'ICO']['Amount'].sum()
-        emp_total = df[df['Segment'] == 'Employee']['Amount'].sum()
 
+# ══════════════════════════════════════════════════════════════════════════════
+# HEADER
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown(f"""
+<div style='background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding:32px;border-radius:20px;margin-bottom:24px;color:white;
+            box-shadow:0 20px 60px rgba(102,126,234,0.3);'>
+    <div style='display:flex;justify-content:space-between;align-items:center;'>
+        <div>
+            <div style='font-size:2.2rem;font-weight:800;margin-bottom:4px;'>
+                💎 VendorFace v6.0
+            </div>
+            <div style='font-size:1rem;opacity:0.9;'>
+                AP Intelligence Dashboard | Opella Finance Operations
+            </div>
+        </div>
+        <div style='text-align:right;'>
+            <div style='font-size:0.8rem;opacity:0.8;'>
+                {datetime.now().strftime('%d %b %Y, %H:%M')}
+            </div>
+            <div style='font-size:1.1rem;font-weight:600;margin-top:4px;'>
+                {len(df_full):,} Records
+            </div>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+if use_demo:
+    st.markdown("""
+    <div class='info-box'>
+        🎯 <b>Demo Mode Active</b> — Viewing synthetic data. 
+        Upload real FBL1N & F.01 files via sidebar to analyze actual AP data.
+    </div>
+    """, unsafe_allow_html=True)
+
+if not data_ok:
+    st.markdown("""
+    <div style='text-align:center;padding:80px;'>
+        <div style='font-size:4rem;margin-bottom:16px;'>📂</div>
+        <h2 style='color:#64748B;margin-bottom:8px;'>Upload Files to Begin</h2>
+        <p style='color:#94A3B8;'>FBL1N & F.01 files required</p>
+    </div>
+    """, unsafe_allow_html=True)
+    st.stop()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# KPI CARDS
+# ══════════════════════════════════════════════════════════════════════════════
+tot_ap = df_full["Amount (LC)"].sum()
+ov_df = df_full[df_full["Days Overdue"] > 0]
+tot_ov = ov_df["Amount (LC)"].sum()
+crit_df = df_full[df_full["Aging Bucket"] == "90+ Days"]
+n_vend = df_full["Vendor"].nunique()
+ico_bal = df_full[df_full["Segment"] == "ICO"]["Amount (LC)"].sum()
+emp_bal = df_full[df_full["Segment"] == "Employee"]["Amount (LC)"].sum()
+
+kpi_data = [
+    ("Total AP", tot_ap, f"{len(df_full):,} items · {n_vend} vendors", "#3B82F6", "💰"),
+    ("Overdue", tot_ov, f"{len(ov_df):,} invoices", "#EF4444", "⏰"),
+    ("Critical 90+", crit_df["Amount (LC)"].sum(), f"{len(crit_df):,} items", "#DC2626", "⚠️"),
+    ("ICO Balance", ico_bal, "Intercompany", "#8B5CF6", "🔗"),
+    ("Employee", emp_bal, "Staff payables", "#10B981", "👤"),
+]
+
+cols = st.columns(len(kpi_data))
+for i, (label, value, sub, color, icon) in enumerate(kpi_data):
+    with cols[i]:
         st.markdown(f"""
-        <div class="kpi-row">
-          <div class="kpi-card blue">
-            <div class="kpi-label">Total Trade Debt (40000)</div>
-            <div class="kpi-value">{display_unit} {sc(abs(tot_debt)):,.0f}</div>
-            <div class="kpi-sub">Open Items: {len(payables_df):,} | Vendors: {payables_df['Vendor'].nunique():,}</div>
-          </div>
-          <div class="kpi-card amber">
-            <div class="kpi-label">Total Prepayments (24018)</div>
-            <div class="kpi-value">{display_unit} {sc(abs(prep_total)):,.0f}</div>
-            <div class="kpi-sub">Vendors with advances: {prep_df['Vendor'].nunique():,}</div>
-          </div>
-          <div class="kpi-card red">
-            <div class="kpi-label">Debit Balances (Net Positive)</div>
-            <div class="kpi-value">{display_unit} {sc(abs(debit_total)):,.0f}</div>
-            <div class="kpi-sub">Debit Vendors: {len(debit_vendors):,}</div>
-          </div>
-          <div class="kpi-card purple">
-            <div class="kpi-label">ICO Balance (42905)</div>
-            <div class="kpi-value">{display_unit} {sc(abs(ico_total)):,.0f}</div>
-            <div class="kpi-sub">Intercompany Group Code</div>
-          </div>
-          <div class="kpi-card green">
-            <div class="kpi-label">Employee Balance (42006)</div>
-            <div class="kpi-value">{display_unit} {sc(abs(emp_total)):,.0f}</div>
-            <div class="kpi-sub">Staff Payables Group Code</div>
-          </div>
+        <div class='kpi-card' style='--accent:{color};'>
+            <div style='font-size:2rem;margin-bottom:8px;'>{icon}</div>
+            <div class='kpi-label'>{label}</div>
+            <div class='kpi-value'>{fa(value)}</div>
+            <div class='kpi-sub'>{sub}</div>
+            <div class='progress-bar'>
+                <div class='progress-fill' style='width:{min(100, abs(value/tot_ap*100) if tot_ap else 0):.0f}%;background:{color};'></div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 Aging Analytics", "💳 Prepayments", "⚖️ Debit Balances", "🏦 GL Breakdown", "🔄 F.01 Reconciliation", "📤 Export Center"])
 
-        # EXCEL İÇİN FULL VERİLER (TOP10 DEĞİL, TAM LİSTE) BURADA HESAPLANIYOR
-        def build_full_aging(segment_df):
-            if segment_df.empty: return pd.DataFrame()
-            full_df = segment_df.pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
-            full_df['Total'] = full_df.sum(axis=1)
-            return full_df
+# ══════════════════════════════════════════════════════════════════════════════
+# TABS
+# ══════════════════════════════════════════════════════════════════════════════
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 Aging Analysis",
+    "🔄 Reconciliation",
+    "📈 Vendor Intelligence",
+    "📤 Export & Reports"
+])
 
-        df_3rd = payables_df[payables_df['Segment'] == '3rd Party']
-        df_ico = payables_df[payables_df['Segment'] == 'ICO']
-        df_emp = payables_df[payables_df['Segment'] == 'Employee']
+with tab1:
+    st.markdown('<div class="sec-hdr">Aging Distribution</div>', unsafe_allow_html=True)
+    
+    # Aging summary
+    aging = (df_full.groupby("Aging Bucket")
+             .agg(Count=("Amount (LC)", "count"),
+                  **{"Total Amount": ("Amount (LC)", "sum")})
+             .reset_index())
+    aging["Aging Bucket"] = pd.Categorical(aging["Aging Bucket"], AGING_LABELS, ordered=True)
+    aging = aging.sort_values("Aging Bucket")
+    aging["Total Amount"] = aging["Total Amount"].abs()
+    
+    # 3D Bar Chart
+    fig = go.Figure()
+    for i, row in aging.iterrows():
+        bk = row["Aging Bucket"]
+        amt = row["Total Amount"] / (1000 if st.session_state.get("in_k") else 1)
+        color = AGING_COLORS[AGING_LABELS.index(bk)]
+        
+        fig.add_trace(go.Bar(
+            name=bk,
+            x=[bk],
+            y=[amt],
+            marker_color=color,
+            text=[f"{fa(row['Total Amount'])}<br>{int(row['Count']):,} items"],
+            textposition="outside",
+            hovertemplate=f"<b>{bk}</b><br>Amount: {fa(row['Total Amount'])}<br>Count: {int(row['Count']):,}<extra></extra>"
+        ))
+    
+    fig.update_layout(
+        showlegend=False,
+        height=400,
+        margin=dict(l=0, r=0, t=20, b=0),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=theme['text']),
+        yaxis=dict(
+            gridcolor=theme['border'],
+            title=f"Amount ({'k' if st.session_state.get('in_k') else ''}{st.session_state.get('disp_curr', 'EUR')})"
+        )
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Segment breakdown
+    st.markdown('<div class="sec-hdr">Segment Analysis</div>', unsafe_allow_html=True)
+    
+    seg_cols = st.columns(3)
+    for i, seg in enumerate(["3rd Party", "ICO", "Employee"]):
+        seg_df = df_full[df_full["Segment"] == seg]
+        seg_amt = seg_df["Amount (LC)"].sum()
+        
+        with seg_cols[i]:
+            st.markdown(f"""
+            <div class='glass-card'>
+                <div style='font-size:1.1rem;font-weight:700;margin-bottom:8px;'>
+                    {seg}
+                </div>
+                <div style='font-size:1.8rem;font-weight:800;color:{AGING_COLORS[i]};margin-bottom:4px;'>
+                    {fa(seg_amt)}
+                </div>
+                <div style='font-size:0.85rem;color:{theme['text_sec']};'>
+                    {len(seg_df):,} items
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-        ap_full_3rd = build_full_aging(df_3rd)
-        ap_full_ico = build_full_aging(df_ico)
-        ap_full_emp = build_full_aging(df_emp)
+with tab2:
+    st.markdown('<div class="sec-hdr">GL Reconciliation</div>', unsafe_allow_html=True)
+    
+    rm, rg, rms = reconcile(df_full, f01_df)
+    
+    gap_tot = rg["Difference"].abs().sum() if not rg.empty else 0
+    
+    if gap_tot < 1 and rms.empty:
+        st.markdown('<div class="success-box">✅ All payable GL accounts matched. No variances detected.</div>', 
+                   unsafe_allow_html=True)
+    else:
+        st.markdown(f'<div class="warning-box">⚠️ {len(rg)} GL(s) with variances. Total gap: {fa(gap_tot)}</div>',
+                   unsafe_allow_html=True)
+    
+    if not rms.empty:
+        st.markdown('<div class="sec-hdr">Missing GL Accounts in Sub-Ledger</div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class='info-box'>
+            📋 These GL accounts have payable balances in the Trial Balance (F.01) but do not appear 
+            in the AP Sub-Ledger report. Common causes: manual GL postings, accruals, or period-end adjustments.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Chart
+        fig = go.Figure(go.Bar(
+            x=rms["Balance"].abs(),
+            y=rms["GL Account"] + " — " + rms.get("Description", ""),
+            orientation='h',
+            marker_color='#EF4444',
+            text=[fa(v) for v in rms["Balance"]],
+            textposition='outside'
+        ))
+        fig.update_layout(
+            height=max(300, len(rms) * 50),
+            margin=dict(l=0, r=100, t=20, b=0),
+            xaxis_title=f"Balance ({st.session_state.get('disp_curr', 'EUR')})",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color=theme['text'])
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
-        # DASHBOARD EKRANI İÇİN SADECE TOP 10 ÇEKİLİYOR
-        def get_top10(full_df):
-            if full_df.empty: return pd.DataFrame()
-            t10 = full_df.sort_values('Total', key=abs, ascending=False).head(10).reset_index()
-            for c in buckets + ['Total']: t10[c] = t10[c].apply(lambda x: sc(x))
-            t10 = append_totals(t10, buckets + ['Total'], label_col='Vendor')
-            return prepare_for_display(t10, buckets + ['Total'])
+with tab3:
+    st.markdown('<div class="sec-hdr">Top 20 Vendors by Balance</div>', unsafe_allow_html=True)
+    
+    lbl = "Vendor Name" if "Vendor Name" in df_full.columns else "Vendor"
+    top20 = (df_full.groupby(lbl)["Amount (LC)"]
+             .sum().abs().sort_values(ascending=False).head(20).reset_index())
+    
+    fig = go.Figure(go.Bar(
+        x=top20[lbl].str[:30],
+        y=top20["Amount (LC)"] / (1000 if st.session_state.get("in_k") else 1),
+        marker=dict(
+            color=top20["Amount (LC)"],
+            colorscale='RdYlGn_r',
+            showscale=True
+        ),
+        text=[fa(v) for v in top20["Amount (LC)"]],
+        textposition='outside'
+    ))
+    fig.update_layout(
+        height=500,
+        margin=dict(l=0, r=0, t=20, b=0),
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=theme['text']),
+        yaxis_title=f"Balance ({'k' if st.session_state.get('in_k') else ''}{st.session_state.get('disp_curr', 'EUR')})"
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
-        top10_3rd = get_top10(ap_full_3rd)
-        top10_ico = get_top10(ap_full_ico)
-        top10_emp = get_top10(ap_full_emp)
-
-        with tab1:
-            st.markdown(f"### Payables Aging Summary ({display_unit})")
-            aging_summary = payables_df.groupby('Bucket')['Amount'].sum().abs().reset_index()
-            aging_summary['Bucket'] = pd.Categorical(aging_summary['Bucket'], categories=buckets, ordered=True)
-            aging_summary = aging_summary.sort_values('Bucket')
+with tab4:
+    st.markdown('<div class="sec-hdr">Export & Reports</div>', unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        <div class='glass-card'>
+            <div style='font-size:1.5rem;margin-bottom:8px;'>📊</div>
+            <div style='font-weight:700;margin-bottom:8px;'>Excel Report</div>
+            <div style='font-size:0.85rem;color:{};margin-bottom:16px;'>
+                Complete workbook with all data
+            </div>
+        </div>
+        """.format(theme['text_sec']), unsafe_allow_html=True)
+        
+        if st.button("⬇️ Generate Excel", use_container_width=True, type="primary"):
+            with st.spinner("Building workbook..."):
+                rm, rg, rms = reconcile(df_full, f01_df)
+                xdata = build_excel(df_full, rm, rg, rms, aging)
             
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                disp_aging = aging_summary.copy()
-                disp_aging['Amount Scaled'] = disp_aging['Amount'].apply(lambda x: sc(x))
-                disp_aging = append_totals(disp_aging, ['Amount Scaled'], label_col='Bucket')
-                disp_aging = prepare_for_display(disp_aging, ['Amount Scaled'])
-                st.dataframe(disp_aging[['Bucket', 'Amount Scaled']].style.format({'Amount Scaled': "{:,.0f}"}), use_container_width=True, hide_index=True)
-            with c2:
-                fig = px.bar(aging_summary, x='Bucket', y=aging_summary['Amount']/scalar, text_auto=',.0f', title=f"Aging Distribution ({display_unit})", color='Bucket', color_discrete_sequence=px.colors.qualitative.Pastel)
-                fig.update_traces(textposition='outside')
-                fig.update_layout(showlegend=False, xaxis_title="", yaxis_title=display_unit, margin=dict(t=40, b=0, l=0, r=0))
-                st.plotly_chart(fig, use_container_width=True)
+            st.download_button(
+                "📥 Download .xlsx",
+                xdata,
+                file_name=f"VendorFace_AP_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+    
+    with col2:
+        st.markdown("""
+        <div class='glass-card'>
+            <div style='font-size:1.5rem;margin-bottom:8px;'>⚠️</div>
+            <div style='font-weight:700;margin-bottom:8px;'>Critical Items</div>
+            <div style='font-size:0.85rem;color:{};margin-bottom:16px;'>
+                90+ day overdue only
+            </div>
+        </div>
+        """.format(theme['text_sec']), unsafe_allow_html=True)
+        
+        crit = df_full[df_full["Aging Bucket"] == "90+ Days"]
+        if len(crit):
+            st.download_button(
+                f"⬇️ Critical ({len(crit)} items)",
+                crit.to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"VendorFace_Critical_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        else:
+            st.success("✅ No critical items")
 
-            st.divider()
-            st.markdown(f"### Top 10 Vendor Aging by Segment ({display_unit})")
 
-            t_3rd, t_ico, t_emp = st.tabs(["🏭 3rd Party (40000)", "🔗 Intercompany ICO (42905)", "👤 Employee (42006)"])
-            with t_3rd:
-                if not top10_3rd.empty: st.dataframe(top10_3rd.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
-                else: st.info("No 3rd Party balances found.")
-            with t_ico:
-                if not top10_ico.empty: st.dataframe(top10_ico.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
-                else: st.info("No Intercompany balances found.")
-            with t_emp:
-                if not top10_emp.empty: st.dataframe(top10_emp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
-                else: st.info("No Employee balances found.")
-
-        with tab2:
-            st.markdown(f"### Prepayments Detail - SOLAR 24018 ({display_unit})")
-            if prep_df.empty:
-                st.info("No prepayment line items detected matching SOLAR code 24018.")
-                prep_full_df = pd.DataFrame()
-            else:
-                prep_full_df = prep_df.pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
-                prep_full_df['Total'] = prep_full_df.sum(axis=1)
-                
-                prep_disp = prep_full_df.sort_values('Total', key=abs, ascending=False).reset_index()
-                for col in buckets + ['Total']: prep_disp[col] = prep_disp[col].apply(lambda x: sc(x))
-                prep_disp = append_totals(prep_disp, buckets + ['Total'], label_col='Vendor')
-                prep_disp = prepare_for_display(prep_disp, buckets + ['Total'])
-                st.dataframe(prep_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
-
-        with tab3:
-            st.markdown(f"### Debit Balance Details (Net Positive Vendors) - ({display_unit})")
-            if debit_df.empty:
-                st.success("✅ No vendors with net debit balances found.")
-                debit_full_df = pd.DataFrame()
-            else:
-                debit_full_df = debit_df.pivot_table(index='Vendor', columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
-                debit_full_df['Total'] = debit_full_df.sum(axis=1)
-                
-                debit_disp = debit_full_df.sort_values('Total', key=abs, ascending=False).head(10).reset_index()
-                for col in buckets + ['Total']: debit_disp[col] = debit_disp[col].apply(lambda x: sc(x))
-                debit_disp = append_totals(debit_disp, buckets + ['Total'], label_col='Vendor')
-                debit_disp = prepare_for_display(debit_disp, buckets + ['Total'])
-                
-                st.markdown(f"**Top 10 Vendors in Debit Position**")
-                st.dataframe(debit_disp.style.format({c: "{:,.0f}" for c in buckets+['Total']}), use_container_width=True, hide_index=True)
-
-        with tab4:
-            st.markdown(f"### Detailed GL Breakdown ({display_unit})")
-            gl_pivot = df.pivot_table(index=['SOLAR Code', 'GL'], columns='Bucket', values='Amount', aggfunc='sum', fill_value=0).reindex(columns=buckets, fill_value=0)
-            gl_pivot['Total Balance'] = gl_pivot.sum(axis=1)
-            gl_disp = gl_pivot.reset_index().sort_values('Total Balance', key=abs, ascending=False)
-            
-            for col in buckets + ['Total Balance']: gl_disp[col] = gl_disp[col].apply(lambda x: sc(x))
-            gl_disp = append_totals(gl_disp, buckets + ['Total Balance'], label_col='SOLAR Code')
-            gl_disp.loc[gl_disp['SOLAR Code'] == 'TOTAL', 'GL'] = '' 
-            gl_disp = prepare_for_display(gl_disp, buckets + ['Total Balance'])
-            st.dataframe(gl_disp.style.format({c: "{:,.0f}" for c in buckets+['Total Balance']}), use_container_width=True, hide_index=True)
-
-        with tab5:
-            st.markdown(f"### AP Sub-Ledger GLs vs Trial Balance ({display_unit})")
-            rec_df = res['rec_df'].copy()
-            gap_df = res['gap_df'].copy()
-            
-            # RECONCILIATION BİRLEŞTİRME (FBL1N'DE OLMAYANLAR ANA RAPORA EKLENİYOR)
-            if not gap_df.empty:
-                gap_disp = gap_df.copy()
-                gap_disp['FBL1N Balance'] = 0
-                gap_disp['Difference'] = gap_disp['F.01 Balance']
-                gap_disp['Status'] = '🚨 Missing in FBL1N'
-                full_rec_df = pd.concat([rec_df, gap_disp], ignore_index=True) if not rec_df.empty else gap_disp
-            else:
-                full_rec_df = rec_df.copy()
-                
-            if full_rec_df.empty:
-                st.warning("No Trial Balance data uploaded, or no overlapping accounts found.")
-            else:
-                disp_rec = full_rec_df.sort_values('Difference', key=abs, ascending=False)
-                for c in ['F.01 Balance', 'FBL1N Balance', 'Difference']: disp_rec[c] = disp_rec[c].apply(lambda x: sc(x))
-                disp_rec = append_totals(disp_rec, ['F.01 Balance', 'FBL1N Balance', 'Difference'], label_col='GL Account')
-                disp_rec.loc[disp_rec['GL Account'] == 'TOTAL', ['Description', 'SOLAR Group', 'Status']] = ''
-                disp_rec = prepare_for_display(disp_rec, ['F.01 Balance', 'FBL1N Balance', 'Difference'])
-                
-                # Hem ✅ Matched, Hem ⚠️ Mismatch Hem de 🚨 Missing in FBL1N statüleri boyanıyor
-                st.dataframe(disp_rec.style.format({c: "{:,.0f}" for c in ['F.01 Balance', 'FBL1N Balance', 'Difference']})
-                             .applymap(lambda x: 'background-color: #dcfce7; color: #065f46; font-weight: bold;' if x == '✅ Matched' else ('background-color: #fee2e2; color: #991b1b; font-weight: bold;' if x == '⚠️ Mismatch' else ('background-color: #fef08a; color: #854d0e; font-weight: bold;' if 'Missing' in str(x) else '')), subset=['Status']), 
-                             use_container_width=True, hide_index=True)
-
-        with tab6:
-            st.markdown("### 📥 Report Export Hub")
-            col_ex1, col_ex2 = st.columns(2)
-            
-            with col_ex1:
-                st.markdown("<div style='background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:16px;min-height:110px;'><b>🌐 HTML Dashboard</b><br/><span style='font-size:.75rem;color:#6B7280;'>Printable web layout of the analysis.</span></div>", unsafe_allow_html=True)
-                
-                html_out = generate_html_report([
-                    top10_3rd, top10_ico, top10_emp, gl_disp, disp_rec
-                ], [
-                    "1. Top 10 3rd Party Aging", "2. Top 10 ICO Aging", "3. Top 10 Employee Aging", "4. GL Breakdown", "5. Reconciliation Status (Inc. Missing FBL1N)"
-                ], display_unit, eur_rate)
-                st.download_button("📄 Download HTML Report", html_out, f"Opella_Dashboard_{display_unit}.html", "text/html", use_container_width=True)
-            
-            with col_ex2:
-                st.markdown("<div style='background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:16px;min-height:110px;'><b>📊 Detailed Excel Report</b><br/><span style='font-size:.75rem;color:#6B7280;'>Full Excel pack with Opella formatting.</span></div>", unsafe_allow_html=True)
-                
-                try:
-                    def clean_and_total_full(df_in, numeric_cols, label_col='Vendor'):
-                        if df_in is None or df_in.empty: return pd.DataFrame()
-                        d = df_in.copy().reset_index() if df_in.index.name else df_in.copy()
-                        sort_c = next((c for c in ['Total', 'Total Balance', 'F.01 Balance', 'Difference'] if c in d.columns), None)
-                        if sort_c: d = d.sort_values(sort_c, key=abs, ascending=False)
-                        for c in numeric_cols:
-                            if c in d.columns: 
-                                d[c] = (pd.to_numeric(d[c], errors='coerce') / scalar).round(0)
-                        return append_totals(d, numeric_cols, label_col)
-
-                    # EXCEL İÇİN TOP 10 DEĞİL, FULL VERİ KULLANILIYOR
-                    ex_3rd  = clean_and_total_full(ap_full_3rd, buckets + ['Total'], 'Vendor')
-                    ex_ico  = clean_and_total_full(ap_full_ico, buckets + ['Total'], 'Vendor')
-                    ex_emp  = clean_and_total_full(ap_full_emp, buckets + ['Total'], 'Vendor')
-                    ex_prep = clean_and_total_full(prep_full_df, buckets + ['Total'], 'Vendor') if not prep_df.empty else pd.DataFrame()
-                    ex_deb  = clean_and_total_full(debit_full_df, buckets + ['Total'], 'Vendor') if not debit_df.empty else pd.DataFrame()
-                    ex_gl   = clean_and_total_full(gl_pivot.reset_index(), buckets + ['Total Balance'], 'SOLAR Code')
-                    ex_rec  = clean_and_total_full(full_rec_df, ['F.01 Balance', 'FBL1N Balance', 'Difference'], 'GL Account')
-                    
-                    output_full = io.BytesIO()
-                    with pd.ExcelWriter(output_full, engine='xlsxwriter') as writer:
-                        format_excel_sheet(writer, ex_3rd, 'FULL 3rd Party Aging')
-                        format_excel_sheet(writer, ex_ico, 'FULL ICO Aging')
-                        format_excel_sheet(writer, ex_emp, 'FULL Employee Aging')
-                        format_excel_sheet(writer, ex_prep, 'FULL Prepayment Detail')
-                        format_excel_sheet(writer, ex_deb, 'FULL Debit Balance')
-                        format_excel_sheet(writer, ex_gl, 'GL Breakdown')
-                        format_excel_sheet(writer, ex_rec, 'Reconciliation Audit')
-                        format_excel_sheet(writer, df.head(5000), 'Raw Classified Sample')
-                    
-                    excel_data = output_full.getvalue()
-                    
-                    st.download_button(
-                        label="📥 Download Full Excel Data", 
-                        data=excel_data, 
-                        file_name=f"Opella_AP_FULL_Data_{display_unit}_{datetime.now().strftime('%Y%m%d')}.xlsx", 
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True, 
-                        type="primary"
-                    )
-                except Exception as e:
-                    st.error(f"🚨 Excel Creation Engine Error: {str(e)}")
-
-    elif not uploaded_file or not tb_file:
-        st.info("👆 Please upload the required FBL1N and F.01 Trial Balance reports from the sidebar to begin.")
-
+# ══════════════════════════════════════════════════════════════════════════════
+# FOOTER
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown(f"""
+<div style='text-align:center;margin-top:48px;padding-top:24px;border-top:1px solid {theme['border']};
+            color:{theme['text_sec']};font-size:0.8rem;'>
+    💎 VendorFace v6.0 ULTIMATE | Perfect Engine + Stunning UX | Opella Finance Operations
+</div>
+""", unsafe_allow_html=True)
