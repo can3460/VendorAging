@@ -232,37 +232,16 @@ div[data-testid="stTabs"] button[aria-selected="true"]:hover { background-color:
 .kpi-sub { font-size:0.7rem; color:#64748B; margin-top:5px; }
 
 [data-testid="stDataFrame"] { width: 100% !important; margin: 0 auto; }
+
+/* 🔥 STREAMLIT CLOUD LOGOLARINI VE MENÜLERİNİ YOK EDEN KESİN CSS 🔥 */
+header {visibility: hidden !important;}
+.stApp {margin-top: -50px;}
+#MainMenu {visibility: hidden !important;}
+footer {visibility: hidden !important;}
+.viewerBadge_container__1QSob {display: none !important;}
+.viewerBadge_link__1S137 {display: none !important;}
 </style>
 """, unsafe_allow_html=True)
-
-if not st.session_state['logged_in']:
-    st.markdown(f"""<div style="position: fixed; top: 15px; right: 20px; background: #e0e7ff; color: #3730a3; padding: 5px 15px; border-radius: 20px; font-size: 13px; font-weight: bold; border: 1px solid #c7d2fe; z-index: 9999;">{VERSION_NO}</div>""", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1.2, 1])
-    with col2:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        if os.path.exists("logo.png"):
-            st.image("logo.png", width=250)
-        else:
-            st.markdown("<h1 style='text-align: center; color:#064e3b;'>Opella</h1>", unsafe_allow_html=True)
-            
-        st.markdown("<h2 style='text-align: center; color:#333;'>AP Analyzing Suite</h2>", unsafe_allow_html=True)
-        with st.form("login_form"):
-            email_input = st.text_input("Corporate Email", placeholder="name.surname@opella.com").strip().lower()
-            if st.form_submit_button("Secure Login", use_container_width=True):
-                if not (email_input.endswith("@sanofi.com") or email_input.endswith("@opella.com")):
-                    st.error("🔒 Security Policy: Only @sanofi.com or @opella.com domains are allowed.")
-                else:
-                    users = load_users()
-                    if 'email' in users.columns and email_input in users['email'].values:
-                        st.session_state.update({'logged_in': True, 'user_name': email_input.split('@')[0].replace('.',' ').title(), 'user_email': email_input})
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ Your email is not registered in the authorized users list.")
-                        subject = "AP Analyzing Suite - Access Request"
-                        body = f"Hello Admin,%0D%0A%0D%0AI would like to request access to the AP Analyzing Suite.%0D%0A%0D%0AMy Email: {email_input}%0D%0A%0D%0AThank you."
-                        mailto_link = f"mailto:{MASTER_ADMIN}?subject={subject}&body={body}"
-                        st.markdown(f'<a href="{mailto_link}" target="_blank" style="display: block; text-align: center; padding: 10px 20px; background-color: #064e3b; color: #fde68a; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 10px;">📧 Request Access via Outlook</a>', unsafe_allow_html=True)
-    st.stop()
 
 # ==========================================
 # 4. NAVIGATION & SIDEBAR
@@ -685,3 +664,4 @@ elif page == "🏠 Analysis Home":
 
     elif not uploaded_file or not tb_file:
         st.info("👆 Please upload the required FBL1N and F.01 Trial Balance reports from the sidebar to begin.")
+
