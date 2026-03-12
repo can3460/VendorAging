@@ -1,8 +1,8 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                          VendorFace v6.1 ULTIMATE                            ║
+║                          VendorFace v6.2 ULTIMATE                            ║
 ║                   AP Intelligence Dashboard | Opella Finance                 ║
-║                  Perfect Engine + Stunning UX | Production Ready             ║
+║           Bulletproof Excel Engine + Dual UX Mode | Production Ready         ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -22,18 +22,18 @@ warnings.filterwarnings("ignore")
 # 1. PAGE CONFIG & STRICT SECURITY UI HIDERS
 # ══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="VendorFace v6.1 | AP Intelligence",
+    page_title="VendorFace v6.2 | AP Intelligence",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
         'Get Help': None, 
         'Report a bug': None, 
-        'About': "VendorFace v6.1 ULTIMATE | Opella Finance Operations"
+        'About': "VendorFace v6.2 ULTIMATE | Opella Finance Operations"
     }
 )
 
-# STRICT CSS: Completely annihilates Streamlit Cloud branding, header, and deploy buttons
+# STRICT CSS: Completely annihilates Streamlit Cloud branding
 st.markdown("""
 <style>
     header {visibility: hidden !important;}
@@ -50,7 +50,7 @@ st.markdown("""
 # ══════════════════════════════════════════════════════════════════════════════
 # 2. SYSTEM CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
-VERSION_NO = "v6.1 ULTIMATE"
+VERSION_NO = "v6.2 ULTIMATE"
 MASTER_ADMIN = "can.adiguzel@sanofi.com"
 USER_DB = "users_v6.xlsx"
 
@@ -104,7 +104,7 @@ def is_authorized(email):
     return email in users['email'].str.lower().values
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 4. THEME SYSTEM & GLASSMORPHISM CSS
+# 4. THEME SYSTEM & TEXTBOX CSS FIXES
 # ══════════════════════════════════════════════════════════════════════════════
 def get_theme():
     if st.session_state.theme == 'dark':
@@ -171,11 +171,33 @@ html, body, [data-testid="stAppViewContainer"] {{
 
 /* DataFrame Styling Override */
 [data-testid="stDataFrame"] {{ width: 100% !important; }}
+
+/* 🔥 THE FIX: FORCE ALL TEXTBOXES (INPUTS) TO BE WHITE WITH BLACK TEXT ALWAYS 🔥 */
+div[data-baseweb="input"] > div {{
+    background-color: #ffffff !important;
+}}
+div[data-baseweb="input"] input {{
+    color: #000000 !important;
+    background-color: #ffffff !important;
+    -webkit-text-fill-color: #000000 !important;
+    font-weight: 600 !important;
+}}
 </style>
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 5. SECURE LOGIN SCREEN (GLASSMORPHISM)
+# 5. TOP RIGHT THEME TOGGLE (GLOBAL)
+# ══════════════════════════════════════════════════════════════════════════════
+# Create a row at the very top for the Theme Toggle button
+top_col1, top_col2 = st.columns([10, 1])
+with top_col2:
+    btn_label = "🌙 Dark" if st.session_state.theme == 'light' else "☀️ Light"
+    if st.button(btn_label, key="global_theme_toggle", use_container_width=True):
+        st.session_state.theme = 'dark' if st.session_state.theme == 'light' else 'light'
+        st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 6. SECURE LOGIN SCREEN (GLASSMORPHISM)
 # ══════════════════════════════════════════════════════════════════════════════
 if not st.session_state.logged_in:
     c1, c2, c3 = st.columns([1, 1.2, 1])
@@ -204,7 +226,7 @@ if not st.session_state.logged_in:
     st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 6. BUSINESS LOGIC & HELPER FUNCTIONS
+# 7. BUSINESS LOGIC & HELPER FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 def is_ico(gl, vname=""):
     gl, vn = str(gl).strip(), f" {str(vname).lower()} "
@@ -243,7 +265,7 @@ def smart_read(file):
     raise ValueError(f"Could not read '{file.name}'. Encoding or format unsupported.")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 7. PERFECT DATA LOADERS
+# 8. PERFECT DATA LOADERS (THE PANDAS PIVOT BUG FIX IS HERE)
 # ══════════════════════════════════════════════════════════════════════════════
 @st.cache_data(show_spinner=False)
 def load_fbl1n(file):
@@ -283,6 +305,14 @@ def load_fbl1n(file):
     for col, val in defaults.items():
         if col not in df.columns: df[col] = val
     
+    # 🔥 PIVOT BUG FIX: If Vendor Name is NaN, fill it! Pandas drops NaNs in Pivot Tables!
+    if "Vendor Name" in df.columns:
+        df["Vendor Name"] = df["Vendor Name"].fillna(df["Vendor"])
+    else:
+        df["Vendor Name"] = df["Vendor"]
+        
+    df["Vendor"] = df["Vendor"].fillna("Unknown")
+    
     # Data Cleansing
     df["Due Date"] = pd.to_datetime(df["Due Date"], errors="coerce").fillna(pd.Timestamp(date.today()))
     df["Amount (LC)"] = pd.to_numeric(df["Amount (LC)"], errors="coerce").fillna(0)
@@ -293,10 +323,9 @@ def load_fbl1n(file):
     df["GL Account"] = df["GL Account"].astype(str).str.strip().str.split('.').str[0]
     
     # Smart Segmentation
-    vn = "Vendor Name" if "Vendor Name" in df.columns else "Vendor"
     df["Segment"] = df.apply(
-        lambda r: "ICO" if is_ico(r["GL Account"], r[vn])
-        else ("Employee" if is_employee(r["GL Account"], r[vn]) else "3rd Party"),
+        lambda r: "ICO" if is_ico(r["GL Account"], r["Vendor Name"])
+        else ("Employee" if is_employee(r["GL Account"], r["Vendor Name"]) else "3rd Party"),
         axis=1
     )
     
@@ -338,7 +367,7 @@ def load_f01(file):
     return df.loc[:, ~df.columns.duplicated()].copy()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 8. DEMO DATA GENERATOR
+# 9. DEMO DATA GENERATOR
 # ══════════════════════════════════════════════════════════════════════════════
 @st.cache_data(show_spinner=False)
 def demo_fbl1n(n=800):
@@ -386,7 +415,7 @@ def demo_f01():
     ])
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 9. ANALYTICAL ENGINES (RECON & AGING BUILDER)
+# 10. ANALYTICAL ENGINES (RECON & AGING BUILDER)
 # ══════════════════════════════════════════════════════════════════════════════
 def reconcile(fbl1n, f01):
     """SOLAR-aware GL reconciliation"""
@@ -409,43 +438,14 @@ def reconcile(fbl1n, f01):
     
     return matched, gaps, missing
 
-def build_vendor_aging_matrix(df_full):
-    """
-    Builds a robust vendor-level aging matrix ensuring ZERO rounding loss.
-    Prepares exact float arrays for Excel.
-    """
-    v_col = "Vendor Name" if "Vendor Name" in df_full.columns else "Vendor"
-    
-    # Group and Pivot raw values
-    pv = df_full.pivot_table(index=[v_col, "Segment"], columns="Aging Bucket", values="Amount (LC)", aggfunc="sum", fill_value=0).reset_index()
-    
-    # Ensure all buckets exist
-    for b in AGING_LABELS:
-        if b not in pv.columns: pv[b] = 0.0
-        
-    # Order columns
-    pv = pv[[v_col, "Segment"] + AGING_LABELS]
-    pv["Total Balance"] = pv[AGING_LABELS].sum(axis=1)
-    
-    # Sort by absolute exposure
-    pv = pv.sort_values(by="Total Balance", key=abs, ascending=False)
-    
-    # Calculate PERFECT TOTAL row using raw float sum (This eliminates the Rounding Bug!)
-    total_row = {v_col: "TOTAL", "Segment": ""}
-    for b in AGING_LABELS + ["Total Balance"]:
-        total_row[b] = pv[b].sum()
-        
-    pv_final = pd.concat([pv, pd.DataFrame([total_row])], ignore_index=True)
-    return pv_final
-
 # ══════════════════════════════════════════════════════════════════════════════
-# 10. 🛡️ FLAWLESS EXCEL EXPORT ENGINE (Bug Fix Applied)
+# 11. 🛡️ FLAWLESS EXCEL EXPORT ENGINE (SEGMENTED SHEETS + NO ROUNDING LOSS)
 # ══════════════════════════════════════════════════════════════════════════════
 def build_excel(df_full, recon_match, recon_gap, recon_miss):
     """
     Generates a deeply formatted Excel file using openpyxl.
-    CRITICAL FIX: Uses build_vendor_aging_matrix() which totals RAW floats 
-    first before Excel applies the visual '#,##0.00' mask. No data is lost!
+    CRITICAL FIX 1: Outputs FULL 3rd Party, FULL ICO, FULL Employee sheets independently.
+    CRITICAL FIX 2: Totals are calculated via raw float addition before formatting.
     """
     from openpyxl import Workbook
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
@@ -467,9 +467,6 @@ def build_excel(df_full, recon_match, recon_gap, recon_miss):
         "90+ Days": PatternFill("solid", fgColor="FEE2E2"),
     }
     
-    # Scale divisor (Export is NOT scaled so users get raw values for accounting)
-    scale = 1.0 
-    
     def format_headers(ws, nc):
         for c in range(1, nc + 1):
             cell = ws.cell(row=1, column=c)
@@ -487,7 +484,7 @@ def build_excel(df_full, recon_match, recon_gap, recon_miss):
     # ─── Sheet 1: Cover ───
     ws0 = wb.active
     ws0.title = "Cover"
-    ws0["B2"] = "VendorFace v6.1 ULTIMATE — AP Intelligence Report"
+    ws0["B2"] = "VendorFace v6.2 ULTIMATE — AP Intelligence Report"
     ws0["B2"].font = Font(bold=True, size=16, color="1A56DB")
     ws0["B3"] = f"Generated By: {st.session_state.user_name} | {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     ws0["B3"].font = Font(size=11, color="64748B")
@@ -519,34 +516,61 @@ def build_excel(df_full, recon_match, recon_gap, recon_miss):
                 cell.number_format = 'yyyy-mm-dd'
     auto_width(ws1)
     
-    # ─── Sheet 3: Vendor Aging Matrix (BUG FIX) ───
-    ws2 = wb.create_sheet("Vendor Aging Matrix")
-    v_aging_df = build_vendor_aging_matrix(df_full)
-    
-    ws2.append(list(v_aging_df.columns))
-    format_headers(ws2, len(v_aging_df.columns))
-    ws2.freeze_panes = "A2"
-    
-    for _, row in v_aging_df.iterrows():
-        ws2.append(list(row))
-        r = ws2.max_row
-        is_total = str(row.iloc[0]) == "TOTAL"
+    # ─── SEGMENTED AGING SHEETS GENERATOR ───
+    def create_segment_aging_sheet(segment_name, sheet_name):
+        seg_df = df_full[df_full["Segment"] == segment_name]
+        if seg_df.empty: return
         
-        for ci in range(1, len(v_aging_df.columns) + 1):
-            cell = ws2.cell(row=r, column=ci)
-            cell.border = CBR
-            if is_total:
-                cell.font = Font(bold=True)
-                cell.fill = PatternFill("solid", fgColor="E2E8F0")
+        # Group and Pivot raw values
+        pv = seg_df.pivot_table(index=["Vendor", "Vendor Name"], columns="Aging Bucket", values="Amount (LC)", aggfunc="sum", fill_value=0).reset_index()
+        
+        # Ensure all buckets exist
+        for b in AGING_LABELS:
+            if b not in pv.columns: pv[b] = 0.0
             
-            c_name = v_aging_df.columns[ci - 1]
-            if c_name in AGING_LABELS + ["Total Balance"]:
-                cell.number_format = '#,##0.00'
-                if not is_total and c_name in AGING_FILLS:
-                    cell.fill = AGING_FILLS[c_name]
-    auto_width(ws2)
+        # Order columns
+        pv = pv[["Vendor", "Vendor Name"] + AGING_LABELS]
+        pv["Total Balance"] = pv[AGING_LABELS].sum(axis=1)
+        pv = pv.sort_values(by="Total Balance", key=abs, ascending=False)
+        
+        # Calculate PERFECT TOTAL row using raw float sum
+        total_row = {"Vendor": "TOTAL", "Vendor Name": ""}
+        for b in AGING_LABELS + ["Total Balance"]:
+            total_row[b] = pv[b].sum()
+            
+        pv_final = pd.concat([pv, pd.DataFrame([total_row])], ignore_index=True)
+        
+        # Write to OpenPyXL
+        ws = wb.create_sheet(sheet_name)
+        ws.append(list(pv_final.columns))
+        format_headers(ws, len(pv_final.columns))
+        ws.freeze_panes = "A2"
+        
+        for _, row in pv_final.iterrows():
+            ws.append(list(row))
+            r = ws.max_row
+            is_total = str(row.iloc[0]) == "TOTAL"
+            
+            for ci in range(1, len(pv_final.columns) + 1):
+                cell = ws.cell(row=r, column=ci)
+                cell.border = CBR
+                if is_total:
+                    cell.font = Font(bold=True)
+                    cell.fill = PatternFill("solid", fgColor="E2E8F0")
+                
+                c_name = pv_final.columns[ci - 1]
+                if c_name in AGING_LABELS + ["Total Balance"]:
+                    cell.number_format = '#,##0.00'
+                    if not is_total and c_name in AGING_FILLS:
+                        cell.fill = AGING_FILLS[c_name]
+        auto_width(ws)
+
+    # Inject the separated sheets for perfect total matching
+    create_segment_aging_sheet("3rd Party", "FULL 3rd Party Aging")
+    create_segment_aging_sheet("ICO", "FULL ICO Aging")
+    create_segment_aging_sheet("Employee", "FULL Employee Aging")
     
-    # ─── Sheets 4-6: Reconciliations ───
+    # ─── Sheets: Reconciliations ───
     def write_df_to_sheet(sheet_name, dataframe):
         if dataframe.empty: return
         ws = wb.create_sheet(sheet_name)
@@ -571,7 +595,7 @@ def build_excel(df_full, recon_match, recon_gap, recon_miss):
     return buf.getvalue()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 11. SIDEBAR & APP ROUTING
+# 12. SIDEBAR & APP ROUTING
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown(f"""
@@ -584,12 +608,6 @@ with st.sidebar:
     """, unsafe_allow_html=True)
     
     st.markdown(f"👤 **{st.session_state.user_name}**")
-    
-    col_t1, col_t2 = st.columns([3, 1])
-    with col_t2:
-        if st.button("🌙" if st.session_state.theme == 'light' else "☀️", help="Toggle theme"):
-            st.session_state.theme = 'dark' if st.session_state.theme == 'light' else 'light'
-            st.rerun()
             
     st.markdown("<hr style='border-color:#475569;margin:16px 0;'/>", unsafe_allow_html=True)
     
@@ -624,7 +642,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 12. MASTER DATA EXECUTION
+# 13. MASTER DATA EXECUTION
 # ══════════════════════════════════════════════════════════════════════════════
 if use_demo:
     fbl1n_df, f01_df, data_ok = demo_fbl1n(1200), demo_f01(), True
@@ -650,7 +668,7 @@ else:
 df_full = fbl1n_df.copy() if data_ok else pd.DataFrame()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 13. UI HEADER & WELCOME
+# 14. UI HEADER & WELCOME
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
 <div style='background:linear-gradient(135deg, #1e3a8a 0%, #4338ca 100%);
@@ -658,7 +676,7 @@ st.markdown(f"""
             box-shadow:0 10px 30px rgba(30,58,138,0.3);'>
     <div style='display:flex;justify-content:space-between;align-items:center;'>
         <div>
-            <div style='font-size:2.2rem;font-weight:800;margin-bottom:4px;'>🛡️ VendorFace v6.1 ULTIMATE</div>
+            <div style='font-size:2.2rem;font-weight:800;margin-bottom:4px;'>🛡️ VendorFace v6.2 ULTIMATE</div>
             <div style='font-size:1rem;opacity:0.9;'>Global AP Intelligence & Control Dashboard | Opella Finance</div>
         </div>
         <div style='text-align:right;'>
@@ -683,7 +701,7 @@ if not data_ok:
     st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 14. DYNAMIC KPI ENGINE
+# 15. DYNAMIC KPI ENGINE
 # ══════════════════════════════════════════════════════════════════════════════
 tot_ap = df_full["Amount (LC)"].sum()
 ov_df = df_full[df_full["Days Overdue"] > 0]
@@ -716,7 +734,7 @@ for i, (label, value, sub, color, icon) in enumerate(kpi_data):
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 15. MAIN TABS & ANALYTICS VIEWS
+# 16. MAIN TABS & ANALYTICS VIEWS
 # ══════════════════════════════════════════════════════════════════════════════
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Aging Matrix & Segments", "⚖️ Continuous Reconciliation", "🧠 Vendor Intelligence", "📥 Report Generation Hub"])
 
@@ -811,13 +829,13 @@ with tab4:
             <div style='font-size:2.5rem;margin-bottom:10px;'>📊</div>
             <div style='font-weight:700;margin-bottom:8px;'>Master Excel Workbook</div>
             <div style='font-size:0.8rem;color:{theme['text_sec']};margin-bottom:20px;'>
-                Complete dataset with 100% precision vendor matrices and formatted tabs.
+                Complete dataset with Segmented Aging sheets (3rd Party, ICO, Employee) perfectly matched to the dashboard.
             </div>
         </div>
         """, unsafe_allow_html=True)
         
         if st.button("⬇️ Compile & Download Full Pack", type="primary", use_container_width=True):
-            with st.spinner("Processing massive arrays and building Excel via OpenPyXL..."):
+            with st.spinner("Processing massive arrays and building segmented Excel sheets..."):
                 rm, rg, rms = reconcile(df_full, f01_df) if (f01_file or use_demo) else (pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
                 xdata = build_excel(df_full, rm, rg, rms)
             
@@ -852,11 +870,11 @@ with tab4:
             st.success("✅ Zero critical items detected.")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 16. FOOTER
+# 17. FOOTER
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
 <div style='text-align:center;margin-top:60px;padding-top:24px;border-top:1px solid {theme['border']};
             color:{theme['text_sec']};font-size:0.8rem;letter-spacing:0.05em;'>
-    <b>VendorFace v6.1 ULTIMATE</b> • Financial Architecture by Can Adiguzel • Precision Engineered for Opella Finance Operations
+    <b>VendorFace v6.2 ULTIMATE</b> • Financial Architecture by Can Adiguzel • Precision Engineered for Opella Finance Operations
 </div>
 """, unsafe_allow_html=True)
