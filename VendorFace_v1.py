@@ -1,9 +1,9 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                    VENDORFACE v7.0 PERFECT HYBRID                            ║
+║                    VENDORFACE v7.1 PERFECT HYBRID                            ║
 ║                                                                              ║
-║        Original v1 Motor (Can + Gemini) + Claude UX Magic                   ║
-║        Bulletproof Excel | Live FX Rates | Dual Theme | Production Ready    ║
+║        Original v1 Motor + Claude UX + Opella Branding                       ║
+║        Bulletproof Excel | Live FX | Dual Theme | Production Ready           ║
 ║                                                                              ║
 ║        Opella Healthcare Finance Operations | Internal Use Only             ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -33,7 +33,7 @@ st.set_page_config(
     layout="wide",
     page_icon="🛡️",
     initial_sidebar_state="expanded",
-    menu_items={'Get Help': None, 'Report a bug': None, 'About': "VendorFace v7.0 | Opella Finance"}
+    menu_items={'Get Help': None, 'Report a bug': None, 'About': "VendorFace v7.1 | Opella Finance"}
 )
 
 # Hide Streamlit branding
@@ -50,18 +50,28 @@ header {visibility: hidden;}
 # ══════════════════════════════════════════════════════════════════════════════
 # CONSTANTS & STATE
 # ══════════════════════════════════════════════════════════════════════════════
-VERSION_NO = "v7.0 HYBRID"
+VERSION_NO = "v7.1 HYBRID"
 MASTER_ADMIN = "can.adiguzel@sanofi.com"
 USER_DB = "users.xlsx"
+
+# Opella brand colors
+OPELLA_COLORS = {
+    'primary': '#00A3E0',    # Bright blue
+    'secondary': '#7C3AED',  # Purple
+    'accent': '#F59E0B',     # Amber
+    'success': '#10B981',    # Green
+    'danger': '#EF4444',     # Red
+}
 
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'view_currency' not in st.session_state: st.session_state['view_currency'] = "Local"
 if 'results' not in st.session_state: st.session_state['results'] = None
 if 'analysis_run' not in st.session_state: st.session_state['analysis_run'] = False
 if 'theme' not in st.session_state: st.session_state['theme'] = 'light'
+if 'eur_rate' not in st.session_state: st.session_state['eur_rate'] = 1.0
 
 # ══════════════════════════════════════════════════════════════════════════════
-# THEME SYSTEM
+# THEME SYSTEM WITH OPELLA COLORS
 # ══════════════════════════════════════════════════════════════════════════════
 def get_theme():
     if st.session_state['theme'] == 'dark':
@@ -69,25 +79,29 @@ def get_theme():
             'bg': '#0F172A',
             'card_bg': '#1E293B',
             'text': '#F1F5F9',
-            'text_sec': '#94A3B8',
+            'text_sec': '#CBD5E1',
             'border': '#334155',
-            'accent': '#3B82F6',
-            'sidebar_bg': 'linear-gradient(180deg, #1e3a8a 0%, #312e81 100%)'
+            'accent': OPELLA_COLORS['primary'],
+            'sidebar_bg': 'linear-gradient(135deg, #00A3E0 0%, #7C3AED 100%)',
+            'input_bg': '#1E293B',
+            'input_text': '#F1F5F9'
         }
     return {
         'bg': '#F8FAFC',
         'card_bg': '#FFFFFF',
         'text': '#0F172A',
-        'text_sec': '#64748B',
+        'text_sec': '#475569',
         'border': '#E2E8F0',
-        'accent': '#2563EB',
-        'sidebar_bg': 'linear-gradient(180deg, #1e3a8a 0%, #312e81 100%)'
+        'accent': OPELLA_COLORS['primary'],
+        'sidebar_bg': 'linear-gradient(135deg, #00A3E0 0%, #7C3AED 100%)',
+        'input_bg': '#FFFFFF',
+        'input_text': '#0F172A'
     }
 
 theme = get_theme()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RESPONSIVE CSS WITH DARK MODE FIX
+# CSS WITH OPELLA BRANDING + DARK MODE FIX
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown(f"""
 <style>
@@ -102,6 +116,7 @@ html, body, [data-testid="stAppViewContainer"] {{
     color: {theme['text']};
 }}
 
+/* Sidebar with Opella gradient */
 [data-testid="stSidebar"] {{
     background: {theme['sidebar_bg']};
 }}
@@ -111,33 +126,68 @@ html, body, [data-testid="stAppViewContainer"] {{
 }}
 
 [data-testid="stSidebar"] label {{
-    color: #CBD5E1 !important;
+    color: #E0E7FF !important;
     font-size: 0.75rem;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }}
 
-/* KPI Cards */
+/* Input fields in sidebar - CRITICAL FIX */
+[data-testid="stSidebar"] input,
+[data-testid="stSidebar"] select,
+[data-testid="stSidebar"] textarea {{
+    background: rgba(255, 255, 255, 0.15) !important;
+    color: #FFFFFF !important;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    border-radius: 8px !important;
+    padding: 8px 12px !important;
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+}}
+
+[data-testid="stSidebar"] input::placeholder {{
+    color: rgba(255, 255, 255, 0.5) !important;
+}}
+
+/* Number input arrows */
+[data-testid="stSidebar"] input[type="number"] {{
+    color: #FFFFFF !important;
+}}
+
+/* Selectbox dropdown text */
+[data-testid="stSidebar"] [data-baseweb="select"] {{
+    color: #FFFFFF !important;
+}}
+
+[data-testid="stSidebar"] [data-baseweb="select"] > div {{
+    background: rgba(255, 255, 255, 0.15) !important;
+    color: #FFFFFF !important;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+}}
+
+/* KPI Cards with Opella colors */
 .kpi-grid {{
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 20px;
     margin-bottom: 24px;
 }}
 
 .kpi-card {{
     background: {theme['card_bg']};
     border: 1px solid {theme['border']};
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
     transition: all 0.3s ease;
     position: relative;
+    overflow: hidden;
 }}
 
 .kpi-card:hover {{
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
 }}
 
 .kpi-card::before {{
@@ -147,17 +197,23 @@ html, body, [data-testid="stAppViewContainer"] {{
     left: 0;
     width: 4px;
     height: 100%;
-    border-radius: 12px 0 0 12px;
+    border-radius: 16px 0 0 16px;
 }}
 
-.kpi-card.blue::before {{ background: #3B82F6; }}
-.kpi-card.red::before {{ background: #EF4444; }}
-.kpi-card.amber::before {{ background: #F59E0B; }}
-.kpi-card.green::before {{ background: #10B981; }}
-.kpi-card.purple::before {{ background: #8B5CF6; }}
+.kpi-card.opella-blue::before {{ background: {OPELLA_COLORS['primary']}; }}
+.kpi-card.opella-purple::before {{ background: {OPELLA_COLORS['secondary']}; }}
+.kpi-card.opella-amber::before {{ background: {OPELLA_COLORS['accent']}; }}
+.kpi-card.opella-green::before {{ background: {OPELLA_COLORS['success']}; }}
+.kpi-card.opella-red::before {{ background: {OPELLA_COLORS['danger']}; }}
+
+.kpi-icon {{
+    font-size: 2.5rem;
+    margin-bottom: 12px;
+    opacity: 0.9;
+}}
 
 .kpi-label {{
-    font-size: 0.75rem;
+    font-size: 0.8rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -166,26 +222,27 @@ html, body, [data-testid="stAppViewContainer"] {{
 }}
 
 .kpi-value {{
-    font-size: 2rem;
+    font-size: 2.2rem;
     font-weight: 800;
     color: {theme['text']};
     line-height: 1.2;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
 }}
 
 .kpi-sub {{
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     color: {theme['text_sec']};
+    font-weight: 500;
 }}
 
 /* Info Boxes */
 .info-box {{
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid rgba(59, 130, 246, 0.3);
+    background: rgba(0, 163, 224, 0.1);
+    border: 1px solid rgba(0, 163, 224, 0.3);
     border-radius: 12px;
     padding: 16px;
     margin: 12px 0;
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     line-height: 1.6;
     color: {theme['text']};
 }}
@@ -193,65 +250,108 @@ html, body, [data-testid="stAppViewContainer"] {{
 .success-box {{
     background: rgba(16, 185, 129, 0.1);
     border: 1px solid rgba(16, 185, 129, 0.3);
-    color: {theme['text']};
 }}
 
 .warning-box {{
     background: rgba(245, 158, 11, 0.1);
     border: 1px solid rgba(245, 158, 11, 0.3);
-    color: {theme['text']};
 }}
 
-/* Header */
+/* Header with Opella gradient */
 .main-header {{
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 32px;
+    background: linear-gradient(135deg, {OPELLA_COLORS['primary']} 0%, {OPELLA_COLORS['secondary']} 100%);
+    padding: 36px;
     border-radius: 20px;
-    margin-bottom: 24px;
+    margin-bottom: 28px;
     color: white;
-    box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
+    box-shadow: 0 12px 40px rgba(0, 163, 224, 0.25);
 }}
 
 .header-title {{
-    font-size: 2rem;
+    font-size: 2.4rem;
     font-weight: 800;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }}
 
 .header-subtitle {{
-    font-size: 1rem;
-    opacity: 0.9;
+    font-size: 1.1rem;
+    opacity: 0.95;
+    font-weight: 500;
 }}
 
-/* Dark mode text fix for ALL text elements */
+/* Dark mode text fixes - ENHANCED */
 .stMarkdown, .stMarkdown p, .stMarkdown div, 
 [data-testid="stMarkdownContainer"],
-[data-testid="stText"] {{
+[data-testid="stText"],
+.element-container,
+.stTextInput label,
+.stSelectbox label,
+.stNumberInput label {{
     color: {theme['text']} !important;
 }}
 
-/* Ensure readability in dark mode */
-.element-container {{
-    color: {theme['text']} !important;
-}}
-
-/* Fix for metric labels and values */
+/* Metric labels with better contrast */
 [data-testid="stMetricLabel"] {{
     color: {theme['text_sec']} !important;
+    font-weight: 600 !important;
 }}
 
 [data-testid="stMetricValue"] {{
     color: {theme['text']} !important;
+    font-weight: 800 !important;
 }}
 
-/* Section headers */
+/* Section headers with Opella accent */
 .sec-hdr {{
-    font-size: 1.1rem;
+    font-size: 1.2rem;
     font-weight: 700;
     color: {theme['text']};
-    margin: 24px 0 12px;
-    padding-bottom: 8px;
-    border-bottom: 2px solid {theme['accent']};
+    margin: 28px 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 3px solid {OPELLA_COLORS['primary']};
+}}
+
+/* Buttons with Opella colors */
+.stButton > button {{
+    border-radius: 8px;
+    font-weight: 600;
+    border: none;
+    transition: all 0.3s ease;
+}}
+
+.stButton > button[kind="primary"] {{
+    background: {OPELLA_COLORS['primary']};
+    color: white;
+}}
+
+.stButton > button[kind="primary"]:hover {{
+    background: {OPELLA_COLORS['secondary']};
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 163, 224, 0.3);
+}}
+
+/* Dataframe styling */
+[data-testid="stDataFrame"] {{
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}}
+
+/* Tab styling */
+.stTabs [data-baseweb="tab-list"] {{
+    gap: 8px;
+}}
+
+.stTabs [data-baseweb="tab"] {{
+    border-radius: 8px 8px 0 0;
+    padding: 12px 20px;
+    font-weight: 600;
+}}
+
+.stTabs [aria-selected="true"] {{
+    background: {OPELLA_COLORS['primary']};
+    color: white;
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -282,16 +382,8 @@ def add_user(new_email):
         return True
     return False
 
-def remove_user(email_to_remove):
-    users = load_users()
-    if email_to_remove != MASTER_ADMIN:
-        users = users[users['email'] != email_to_remove]
-        users.to_excel(USER_DB, index=False)
-        return True
-    return False
-
 # ══════════════════════════════════════════════════════════════════════════════
-# CORE ENGINE (Original v1 - PRESERVED)
+# CORE ENGINE (Original v1 - PRESERVED WITH BUG FIXES)
 # ══════════════════════════════════════════════════════════════════════════════
 def get_live_rate(base_currency):
     """Live FX rates from Yahoo Finance"""
@@ -358,7 +450,7 @@ def append_totals(df, numeric_cols, label_col='Vendor'):
 
 def generate_html_report(dfs, titles, display_curr, rate):
     """HTML report generator"""
-    html = f"<html><head><style>body{{font-family:sans-serif;padding:20px;}}h2{{color:#064e3b;border-bottom:2px solid #064e3b;padding-bottom:5px;}}table{{border-collapse:collapse;width:100%;margin-bottom:30px;font-size:12px;}}th{{background:#f1f5f9;padding:10px;border:1px solid #cbd5e1;text-align:right;}}td{{padding:8px;border:1px solid #cbd5e1;text-align:right;}}td:first-child, th:first-child{{text-align:left;font-weight:bold;}}</style></head><body>"
+    html = f"<html><head><style>body{{font-family:sans-serif;padding:20px;}}h2{{color:#00A3E0;border-bottom:2px solid #00A3E0;padding-bottom:5px;}}table{{border-collapse:collapse;width:100%;margin-bottom:30px;font-size:12px;}}th{{background:#f1f5f9;padding:10px;border:1px solid #cbd5e1;text-align:right;}}td{{padding:8px;border:1px solid #cbd5e1;text-align:right;}}td:first-child, th:first-child{{text-align:left;font-weight:bold;}}</style></head><body>"
     html += f"<h1>Opella AP Analyzing Suite</h1><p><b>Currency View:</b> {display_curr} | <b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M')} | <b>EUR Rate:</b> {rate:,.4f}</p>"
     for df, title in zip(dfs, titles):
         if df is not None and not df.empty:
@@ -371,20 +463,18 @@ def generate_html_report(dfs, titles, display_curr, rate):
     return html
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BULLETPROOF EXCEL ENGINE (Original v1 - CRITICAL)
+# BULLETPROOF EXCEL ENGINE (Original v1)
 # ══════════════════════════════════════════════════════════════════════════════
 def format_excel_sheet(writer, df, sheet_name):
-    """Bulletproof Excel formatter - prevents ALL crashes"""
+    """Bulletproof Excel formatter"""
     if df is None or df.empty:
         df = pd.DataFrame({'Data': ['No data available in this category.']})
         
     df = df.copy()
     
-    # Remove timezone from datetime columns
     for col in df.select_dtypes(include=['datetimetz']).columns:
         df[col] = df[col].dt.tz_localize(None)
         
-    # Replace infinity values
     df = df.replace([np.inf, -np.inf], np.nan)
     df.to_excel(writer, sheet_name=sheet_name, index=False, na_rep="")
     
@@ -393,8 +483,8 @@ def format_excel_sheet(writer, df, sheet_name):
     
     header_format = workbook.add_format({
         'bold': True,
-        'font_color': '#fde68a',
-        'bg_color': '#064e3b',
+        'font_color': '#FFFFFF',
+        'bg_color': '#00A3E0',
         'border': 1
     })
     cell_format = workbook.add_format({'border': 1})
@@ -432,25 +522,61 @@ def build_excel_output(results):
     return output.getvalue()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ANALYSIS ENGINE (Original v1 - PRESERVED)
+# ANALYSIS ENGINE WITH DYNAMIC COLUMN DETECTION (BUG FIX)
 # ══════════════════════════════════════════════════════════════════════════════
 def analyze_ap(df, gl_solar_map, display_curr, eur_rate):
-    """Main AP analysis engine - Original v1 logic"""
+    """Main AP analysis engine with smart column detection"""
     
     if df.empty:
         return None
     
     df = df.copy()
     
+    # ✅ CRITICAL FIX: Dynamic column detection
+    col_map = {}
+    for c in df.columns:
+        cl = str(c).lower()
+        if 'amount' in cl and 'local' in cl:
+            col_map['Amount'] = c
+        elif 'payment date' in cl or 'due date' in cl or 'net due' in cl:
+            col_map['Due Date'] = c
+        elif 'document date' in cl or 'posting date' in cl:
+            col_map['Document Date'] = c
+        elif 'vendor name' in cl or 'name1' in cl:
+            col_map['Vendor Name'] = c
+        elif 'supplier' in cl or 'vendor' in cl:
+            col_map['Vendor'] = c
+        elif 'g/l' in cl or 'gl account' in cl:
+            col_map['GL Account'] = c
+        elif 'document number' in cl or 'doc' in cl:
+            col_map['Document Number'] = c
+    
+    # Rename columns
+    df.rename(columns={v: k for k, v in col_map.items()}, inplace=True)
+    
+    # Set defaults for missing columns
+    if 'Amount' not in df.columns:
+        st.error("❌ Could not find 'Amount in local currency' column")
+        return None
+    if 'Due Date' not in df.columns:
+        df['Due Date'] = pd.Timestamp.today()
+    if 'Vendor Name' not in df.columns:
+        df['Vendor Name'] = df.get('Vendor', 'Unknown')
+    if 'GL Account' not in df.columns:
+        df['GL Account'] = '160000'
+    if 'Document Number' not in df.columns:
+        df['Document Number'] = range(len(df))
+    
     # Amount conversion
     if display_curr == "EUR":
-        df['View_Amount'] = df['Amount in local currency'] / eur_rate
+        df['View_Amount'] = df['Amount'] / eur_rate
     else:
-        df['View_Amount'] = df['Amount in local currency']
+        df['View_Amount'] = df['Amount']
     
     # Date parsing
     df['Due Date'] = pd.to_datetime(df['Due Date'], errors='coerce')
-    df['Document Date'] = pd.to_datetime(df['Document Date'], errors='coerce')
+    if 'Document Date' in df.columns:
+        df['Document Date'] = pd.to_datetime(df['Document Date'], errors='coerce')
     
     # Days calculation
     today = pd.Timestamp.today()
@@ -459,7 +585,7 @@ def analyze_ap(df, gl_solar_map, display_curr, eur_rate):
     
     # Aging buckets
     def assign_bucket(days):
-        if days <= 0: return 'Current'
+        if pd.isna(days) or days <= 0: return 'Current'
         elif days <= 30: return '1-30 Days'
         elif days <= 60: return '31-60 Days'
         elif days <= 90: return '61-90 Days'
@@ -468,22 +594,20 @@ def analyze_ap(df, gl_solar_map, display_curr, eur_rate):
     df['Aging Bucket'] = df['Days Overdue'].apply(assign_bucket)
     
     # GL mapping
-    df['GL_6'] = df['G/L Account'].astype(str).str[:6]
+    df['GL_6'] = df['GL Account'].astype(str).str[:6]
     df['SOLAR'] = df['GL_6'].map(gl_solar_map).fillna('-')
     
     # Segment classification
     def classify_segment(row):
         solar = str(row['SOLAR']).strip()
         gl = str(row['GL_6']).strip()
-        vname = str(row.get('Vendor name', '')).lower()
+        vname = str(row.get('Vendor Name', '')).lower()
         
-        # ICO detection
         if solar == '42905' or gl.startswith(('160100', '161', '162')):
             return 'ICO'
         if any(kw in vname for kw in ['interco', 'ico', 'sanofi', 'opella']):
             return 'ICO'
         
-        # Employee detection
         if solar == '42006' or gl.startswith(('165', '163')):
             return 'Employee'
         if any(kw in vname for kw in ['employee', 'personnel', 'travel']):
@@ -498,7 +622,7 @@ def analyze_ap(df, gl_solar_map, display_curr, eur_rate):
     aging_matrix = pd.pivot_table(
         df,
         values='View_Amount',
-        index='Vendor name',
+        index='Vendor Name',
         columns='Aging Bucket',
         aggfunc='sum',
         fill_value=0
@@ -509,10 +633,10 @@ def analyze_ap(df, gl_solar_map, display_curr, eur_rate):
     aging_matrix = aging_matrix[aging_cols]
     aging_matrix['Total'] = aging_matrix.sum(axis=1)
     aging_matrix = aging_matrix.sort_values('Total', ascending=False)
-    aging_matrix = append_totals(aging_matrix, aging_cols + ['Total'], 'Vendor name')
+    aging_matrix = append_totals(aging_matrix, aging_cols + ['Total'], 'Vendor Name')
     
     # Summary by vendor
-    summary_vendor = df.groupby('Vendor name').agg({
+    summary_vendor = df.groupby('Vendor Name').agg({
         'View_Amount': 'sum',
         'Document Number': 'count',
         'Days Overdue': 'max'
@@ -531,7 +655,7 @@ def analyze_ap(df, gl_solar_map, display_curr, eur_rate):
     gl_breakdown = append_totals(gl_breakdown, ['Balance', 'Count'], 'GL Account')
     
     # Vendor aging
-    vendor_aging = df.groupby(['Vendor name', 'Aging Bucket']).agg({
+    vendor_aging = df.groupby(['Vendor Name', 'Aging Bucket']).agg({
         'View_Amount': 'sum'
     }).reset_index()
     vendor_aging.columns = ['Vendor', 'Bucket', 'Amount']
@@ -539,10 +663,10 @@ def analyze_ap(df, gl_solar_map, display_curr, eur_rate):
     # Prepayments
     prepayments = df[df['View_Amount'] > 0].copy()
     
-    # Debit balances (vendors with net positive)
-    vendor_net = df.groupby('Vendor name')['View_Amount'].sum()
+    # Debit balances
+    vendor_net = df.groupby('Vendor Name')['View_Amount'].sum()
     debit_vendors = vendor_net[vendor_net > 0].index
-    debit_balances = df[df['Vendor name'].isin(debit_vendors)].copy()
+    debit_balances = df[df['Vendor Name'].isin(debit_vendors)].copy()
     
     return {
         'aging_matrix': aging_matrix,
@@ -551,7 +675,7 @@ def analyze_ap(df, gl_solar_map, display_curr, eur_rate):
         'vendor_aging': vendor_aging,
         'prepayments': prepayments,
         'debit_balances': debit_balances,
-        'tb_reconciliation': pd.DataFrame(),  # Placeholder
+        'tb_reconciliation': pd.DataFrame(),
         'raw_data': df
     }
 
@@ -599,22 +723,22 @@ if not st.session_state['logged_in']:
 # Sidebar
 with st.sidebar:
     st.markdown(f"""
-    <div style='text-align:center;padding:20px 0;'>
-        <div style='font-size:2.5rem;margin-bottom:8px;'>🛡️</div>
-        <div style='font-size:1.3rem;font-weight:800;color:#F1F5F9;'>AP Suite</div>
-        <div style='font-size:0.7rem;color:#94A3B8;letter-spacing:0.1em;'>{VERSION_NO}</div>
+    <div style='text-align:center;padding:24px 0;'>
+        <div style='font-size:3rem;margin-bottom:10px;'>🛡️</div>
+        <div style='font-size:1.4rem;font-weight:800;color:#FFFFFF;'>Opella</div>
+        <div style='font-size:0.75rem;color:#E0E7FF;letter-spacing:0.1em;margin-top:4px;'>AP SUITE {VERSION_NO}</div>
     </div>
-    <hr style='border-color:#475569;margin:16px 0;'/>
+    <hr style='border-color:rgba(255,255,255,0.2);margin:16px 0;'/>
     """, unsafe_allow_html=True)
     
     st.markdown(f"""
-    <div style='background:#1E293B;border:1px solid #334155;border-radius:8px;
-                padding:12px;margin-bottom:12px;'>
-      <div style='font-size:.65rem;color:#94A3B8;margin-bottom:4px;'>LOGGED IN AS</div>
-      <div style='font-size:.9rem;font-weight:700;color:#F1F5F9;'>
+    <div style='background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);
+                border-radius:12px;padding:14px;margin-bottom:16px;'>
+      <div style='font-size:.7rem;color:#E0E7FF;margin-bottom:6px;font-weight:600;'>LOGGED IN AS</div>
+      <div style='font-size:1rem;font-weight:700;color:#FFFFFF;'>
         {st.session_state.get('user_name', 'User')}
       </div>
-      <div style='font-size:.65rem;color:#64748B;margin-top:2px;'>
+      <div style='font-size:.75rem;color:#CBD5E1;margin-top:4px;'>
         {st.session_state.get('user_email', '')}
       </div>
     </div>
@@ -629,26 +753,25 @@ with st.sidebar:
             st.rerun()
     
     st.markdown("### 📁 Upload Files")
-    fbl1n_file = st.file_uploader("FBL1N — AP Line Items", type=["xlsx", "xls", "csv"])
-    tb_file = st.file_uploader("F.01 — Trial Balance (Optional)", type=["xlsx", "xls", "csv"])
+    fbl1n_file = st.file_uploader("FBL1N — AP Line Items", type=["xlsx", "xls", "csv"], key="fbl1n")
+    tb_file = st.file_uploader("F.01 — Trial Balance", type=["xlsx", "xls", "csv"], key="tb")
     
     st.markdown("---")
-    st.markdown("### 💱 Currency Settings")
+    st.markdown("### 💱 Currency")
     
     view_currency = st.selectbox(
         "Display Currency",
         ["Local", "EUR"],
-        index=0 if st.session_state['view_currency'] == "Local" else 1
+        index=0 if st.session_state['view_currency'] == "Local" else 1,
+        key="curr_select"
     )
     st.session_state['view_currency'] = view_currency
     
-    # EUR rate with live fetch
     if view_currency == "Local":
-        st.info("💡 Local currency view - no conversion needed")
+        st.info("💡 Showing in local currency")
         eur_rate = 1.0
     else:
-        # Detect currency from uploaded file
-        base_curr = "USD"  # Default
+        base_curr = "TRY"
         if fbl1n_file:
             try:
                 temp_df = smart_read(fbl1n_file)
@@ -663,35 +786,37 @@ with st.sidebar:
             eur_rate = st.number_input(
                 f"1 EUR = ? {base_curr}",
                 min_value=0.00001,
-                value=1.0,
-                format="%.4f"
+                value=float(st.session_state.get('eur_rate', 1.0)),
+                format="%.4f",
+                key="rate_input"
             )
+            st.session_state['eur_rate'] = eur_rate
         with col_b:
-            if st.button("🌐", help=f"Fetch live EUR→{base_curr} rate", use_container_width=True):
+            if st.button("🌐", help=f"Fetch live rate", use_container_width=True, key="fetch_rate"):
                 if YF_AVAILABLE:
-                    with st.spinner("Fetching..."):
+                    with st.spinner("..."):
                         live_rate = get_live_rate(base_curr)
                         if live_rate:
                             st.session_state['eur_rate'] = live_rate
                             st.success(f"✅ {live_rate:.4f}")
                             st.rerun()
                         else:
-                            st.error("❌ Failed to fetch")
+                            st.error("❌ Failed")
                 else:
-                    st.error("yfinance not available")
+                    st.error("yfinance not installed")
     
     st.markdown("---")
     
-    if st.button("🔄 Run Analysis", use_container_width=True, type="primary"):
+    if st.button("🔄 Run Analysis", use_container_width=True, type="primary", key="run_btn"):
         if fbl1n_file:
             st.session_state['analysis_run'] = True
             st.rerun()
         else:
-            st.error("❌ Please upload FBL1N file")
+            st.error("❌ Upload FBL1N first")
     
     st.markdown("---")
     
-    if st.button("🚪 Logout", use_container_width=True):
+    if st.button("🚪 Logout", use_container_width=True, key="logout_btn"):
         st.session_state['logged_in'] = False
         st.session_state['analysis_run'] = False
         st.session_state['results'] = None
@@ -703,10 +828,10 @@ st.markdown(f"""
     <div style='display:flex;justify-content:space-between;align-items:center;'>
         <div>
             <div class='header-title'>📊 AP Intelligence Dashboard</div>
-            <div class='header-subtitle'>Opella Finance Operations</div>
+            <div class='header-subtitle'>Real-time Analysis • Powered by Opella Finance</div>
         </div>
         <div style='text-align:right;'>
-            <div style='font-size:0.8rem;opacity:0.8;'>
+            <div style='font-size:0.85rem;opacity:0.9;'>
                 {datetime.now().strftime('%d %b %Y, %H:%M')}
             </div>
         </div>
@@ -717,44 +842,44 @@ st.markdown(f"""
 if st.session_state.get('analysis_run') and fbl1n_file:
     with st.spinner("🔄 Processing data..."):
         try:
-            # Load data
             df = smart_read(fbl1n_file)
             
-            # Parse trial balance if provided
             gl_name_map, gl_solar_map, gl_balance_map = {}, {}, {}
             if tb_file:
                 gl_name_map, gl_solar_map, gl_balance_map = smart_parse_tb(tb_file)
             
-            # Run analysis
             results = analyze_ap(df, gl_solar_map, view_currency, eur_rate)
             
             if results:
                 st.session_state['results'] = results
                 
-                # KPI Cards
+                # KPI Cards with Opella colors
                 total_ap = results['summary_vendor']['Balance'].iloc[-1] if not results['summary_vendor'].empty else 0
-                total_invoices = results['summary_vendor']['Invoice Count'].iloc[-1] if not results['summary_vendor'].empty else 0
-                total_vendors = len(results['summary_vendor']) - 1  # Exclude TOTAL row
+                total_invoices = int(results['summary_vendor']['Invoice Count'].iloc[-1]) if not results['summary_vendor'].empty else 0
+                total_vendors = len(results['summary_vendor']) - 1
                 
                 overdue = results['aging_matrix'][['1-30 Days', '31-60 Days', '61-90 Days', '90+ Days']].iloc[-1].sum() if not results['aging_matrix'].empty else 0
                 critical = results['aging_matrix']['90+ Days'].iloc[-1] if not results['aging_matrix'].empty else 0
                 
                 st.markdown(f"""
                 <div class='kpi-grid'>
-                    <div class='kpi-card blue'>
+                    <div class='kpi-card opella-blue'>
+                        <div class='kpi-icon'>💰</div>
                         <div class='kpi-label'>Total AP Balance</div>
-                        <div class='kpi-value'>{total_ap:,.0f} {view_currency}</div>
-                        <div class='kpi-sub'>{total_invoices:,.0f} invoices • {total_vendors} vendors</div>
+                        <div class='kpi-value'>{total_ap:,.0f}</div>
+                        <div class='kpi-sub'>{total_invoices:,} invoices • {total_vendors} vendors</div>
                     </div>
-                    <div class='kpi-card red'>
-                        <div class='kpi-label'>Overdue</div>
-                        <div class='kpi-value'>{overdue:,.0f} {view_currency}</div>
+                    <div class='kpi-card opella-red'>
+                        <div class='kpi-icon'>⏰</div>
+                        <div class='kpi-label'>Overdue Amount</div>
+                        <div class='kpi-value'>{overdue:,.0f}</div>
                         <div class='kpi-sub'>{overdue/total_ap*100 if total_ap else 0:.1f}% of total AP</div>
                     </div>
-                    <div class='kpi-card amber'>
+                    <div class='kpi-card opella-amber'>
+                        <div class='kpi-icon'>⚠️</div>
                         <div class='kpi-label'>Critical 90+ Days</div>
-                        <div class='kpi-value'>{critical:,.0f} {view_currency}</div>
-                        <div class='kpi-sub'>{critical/total_ap*100 if total_ap else 0:.1f}% of total AP</div>
+                        <div class='kpi-value'>{critical:,.0f}</div>
+                        <div class='kpi-sub'>{critical/total_ap*100 if total_ap else 0:.1f}% risk exposure</div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -769,27 +894,37 @@ if st.session_state.get('analysis_run') and fbl1n_file:
                 
                 with tab1:
                     st.markdown('<div class="sec-hdr">Aging Matrix</div>', unsafe_allow_html=True)
-                    st.dataframe(results['aging_matrix'], use_container_width=True)
+                    st.dataframe(results['aging_matrix'], use_container_width=True, height=400)
                     
-                    # Chart
                     if not results['vendor_aging'].empty:
+                        top20 = results['vendor_aging'].groupby('Vendor')['Amount'].sum().nlargest(20).reset_index()
+                        vendor_aging_top = results['vendor_aging'][results['vendor_aging']['Vendor'].isin(top20['Vendor'])]
+                        
                         fig = px.bar(
-                            results['vendor_aging'].head(20),
+                            vendor_aging_top,
                             x='Vendor',
                             y='Amount',
                             color='Bucket',
                             title='Top 20 Vendors by Aging',
-                            template='plotly_white'
+                            template='plotly_white',
+                            color_discrete_map={
+                                'Current': OPELLA_COLORS['success'],
+                                '1-30 Days': OPELLA_COLORS['primary'],
+                                '31-60 Days': OPELLA_COLORS['accent'],
+                                '61-90 Days': '#EF4444',
+                                '90+ Days': OPELLA_COLORS['danger']
+                            }
                         )
+                        fig.update_layout(height=500)
                         st.plotly_chart(fig, use_container_width=True)
                 
                 with tab2:
                     st.markdown('<div class="sec-hdr">Vendor Summary</div>', unsafe_allow_html=True)
-                    st.dataframe(results['summary_vendor'], use_container_width=True)
+                    st.dataframe(results['summary_vendor'], use_container_width=True, height=400)
                 
                 with tab3:
                     st.markdown('<div class="sec-hdr">GL Account Breakdown</div>', unsafe_allow_html=True)
-                    st.dataframe(results['gl_breakdown'], use_container_width=True)
+                    st.dataframe(results['gl_breakdown'], use_container_width=True, height=400)
                 
                 with tab4:
                     st.markdown('<div class="sec-hdr">Export Options</div>', unsafe_allow_html=True)
@@ -822,23 +957,25 @@ if st.session_state.get('analysis_run') and fbl1n_file:
                         )
                 
         except Exception as e:
-            st.error(f"❌ Error during analysis: {e}")
+            st.error(f"❌ Analysis error: {e}")
             import traceback
-            st.code(traceback.format_exc())
+            with st.expander("🔍 Technical Details"):
+                st.code(traceback.format_exc())
 
 else:
     st.markdown(f"""
     <div class='info-box' style='text-align:center;padding:60px;'>
-        <div style='font-size:3rem;margin-bottom:16px;'>📂</div>
-        <h2 style='color:{theme['text']};margin-bottom:8px;'>Upload Files to Begin</h2>
-        <p style='color:{theme['text_sec']};'>FBL1N & F.01 files required</p>
+        <div style='font-size:3.5rem;margin-bottom:20px;'>📂</div>
+        <h2 style='color:{theme['text']};margin-bottom:12px;font-weight:700;'>Upload Files to Begin</h2>
+        <p style='color:{theme['text_sec']};font-size:1.1rem;'>FBL1N & F.01 files required for analysis</p>
     </div>
     """, unsafe_allow_html=True)
 
 # Footer
 st.markdown(f"""
-<div style='text-align:center;margin-top:48px;padding-top:24px;border-top:1px solid {theme['border']};
-            color:{theme['text_sec']};font-size:0.8rem;'>
-    🛡️ AP Analyzing Suite {VERSION_NO} | Opella Finance Operations | Zero Data Retention
+<div style='text-align:center;margin-top:60px;padding-top:28px;border-top:2px solid {theme['border']};
+            color:{theme['text_sec']};font-size:0.85rem;'>
+    🛡️ <b>Opella AP Suite {VERSION_NO}</b> | Finance Operations | Zero Data Retention<br/>
+    <span style='font-size:0.75rem;opacity:0.8;'>Powered by Streamlit • Secured by Enterprise Auth</span>
 </div>
 """, unsafe_allow_html=True)
