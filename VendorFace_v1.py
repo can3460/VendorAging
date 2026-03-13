@@ -16,7 +16,7 @@ except ImportError:
 # 1. MASTER CONFIGURATION & ADMIN SETUP
 # ==========================================
 st.set_page_config(page_title="AP Analyzing Suite | Opella", layout="wide", page_icon="🛡️")
-VERSION_NO = "v47.0 (Excel Bug Fixed)"
+VERSION_NO = "v6.2 (Final)"
 MASTER_ADMIN = "can.adiguzel@sanofi.com"
 USER_DB = "users.xlsx"
 
@@ -694,3 +694,4 @@ elif page == "🏠 Analysis Home":
 
     elif not uploaded_file or not tb_file:
         st.info("👆 Please upload the required FBL1N and F.01 Trial Balance reports from the sidebar to begin.")
+
