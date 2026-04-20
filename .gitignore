@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.DS_Store
+
+# Local/runtime files
+users.xlsx
+
+# Local SAP test exports
+Data/
